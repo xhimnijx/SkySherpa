@@ -1,0 +1,32 @@
+# --- runtime data (never commit: contains live member data) ---
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.duckdb
+*.parquet
+.env
+.env.local
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# --- editors / os ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

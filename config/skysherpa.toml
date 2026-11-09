@@ -1,0 +1,32 @@
+# SkySherpa local configuration.
+# Precedence: CLI flag > env var (SKYSHERPA_*) > this file > built-in default.
+
+[ingest]
+poll_seconds = 30          # 15 = upstream cadence, 30 = default, 60 = low-bandwidth
+snapshot_retention_hours = 6   # keep compact raw deltas for reprocessing, then drop
+track_sample_seconds = 60      # trajectory sampling per aircraft
+track_simplify_nm = 0.5        # Ramer-Douglas-Peucker tolerance when a flight ends
+min_controller_slots = 2       # ignore flickers: a session must appear in >=2 polls
+
+[static]
+refresh_hours = 168         # VATSpy.dat + Boundaries.geojson weekly
+ourairports_refresh_hours = 720
+
+[oracle]
+recency_half_life_days = 56
+slot_minutes = 15
+scenario_bank_days = 180
+calibration_min_samples = 300
+retrain_minutes = 15
+
+[dispatch]
+default_departure_grid_minutes = 30
+refine_window_minutes = 120
+monte_carlo_paths = 2000
+pareto_size = 12
+max_results = 25
+
+[server]
+host = "127.0.0.1"
+port = 8765
+# Bind to 0.0.0.0 only if you want the UI on your LAN. Read docs/decisions.md first.

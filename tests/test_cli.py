@@ -1,0 +1,100 @@
+"""CLI smoke tests: the commands exist, parse, and return sane exit codes."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from skysherpa.cli import main
+
+
+def test_version(capsys) -> None:
+    assert main(["version"]) == 0
+    assert "skysherpa" in capsys.readouterr().out
+
+
+def test_parse_callsign(capsys) -> None:
+    assert main(["parse-callsign", "EDDF_C_TWR", "--facility-code", "4"]) == 0
+    out = capsys.readouterr().out
+    assert "EDDF_C_TWR" in out
+    assert "facility  TWR" in out
+    assert "observer  False" in out
+
+
+def test_parse_callsign_observer(capsys) -> None:
+    assert main(["parse-callsign", "BAW15", "--facility-code", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "facility  OBS" in out
+    assert "atc       False" in out
+
+
+def test_parse_route(capsys) -> None:
+    assert main(["parse-route", "GATBA DCT VATZI/N0480F360"]) == 0
+    out = capsys.readouterr().out
+    assert "GATBA" in out
+    assert "direct" in out
+    assert "FL360" in out
+
+
+def test_init_creates_directories(tmp_path: Path, capsys) -> None:
+    target = tmp_path / "data"
+    assert main(["init", "--data-dir", str(target)]) == 0
+    assert (target / "cache").is_dir()
+    assert "ready" in capsys.readouterr().out
+
+
+def test_unknown_command_exits_nonzero() -> None:
+    try:
+        main(["nonsense"])
+    except SystemExit as exc:
+        assert exc.code != 0
+    else:  # pragma: no cover
+        raise AssertionError("expected SystemExit")
+
+
+def test_sniff_json_shape_without_network(monkeypatch, capsys) -> None:
+    """Exercise the sniffer's serialisation path with a canned snapshot."""
+    from skysherpa import cli
+    from skysherpa.feed import parse_snapshot
+
+    payload = {
+        "general": {
+            "version": 3,
+            "update_timestamp": "2026-11-09T21:49:41.2144888Z",
+            "connected_clients": 10,
+            "unique_users": 9,
+        },
+        "pilots": [
+            {
+                "cid": 1,
+                "callsign": "BAW1",
+                "latitude": 51.0,
+                "longitude": -0.5,
+                "altitude": "30000",
+                "groundspeed": 400,
+                "flight_plan": {
+                    "departure": "EGLL",
+                    "arrival": "LEPA",
+                    "aircraft_short": "A20N",
+                    "route": "DCT GATBA",
+                    "deptime": "1200",
+                    "enroute_time": "0200",
+                },
+            }
+        ],
+        "controllers": [
+            {"cid": 10, "callsign": "EGLL_TWR", "facility": 4, "frequency": "118.5", "rating": 4}
+        ],
+        "atis": [],
+        "servers": [],
+        "prefiles": [],
+    }
+    snapshot = parse_snapshot(payload)
+    monkeypatch.setattr(cli, "fetch_snapshot", lambda settings: snapshot)
+    assert main(["sniff", "--json", "--no-coverage"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["pilots"] == 1
+    assert data["atc"] == 1
+    assert data["facilities"] == {"TWR": 1}
+    assert data["coverage"] is None
+    assert data["routes"]["top_pairs"][0] == {"dep": "EGLL", "arr": "LEPA", "count": 1}
