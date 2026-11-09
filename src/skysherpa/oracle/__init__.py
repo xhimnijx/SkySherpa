@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .backtest import BacktestReport, rolling_origin
+from .backtest import BacktestReport, latest_calibrator, rolling_origin
 from .model import Calibrator, CoverageModel, Forecast, ModelParams, PresenceMatrix, beta_ppf
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     "ModelParams",
     "PresenceMatrix",
     "beta_ppf",
+    "latest_calibrator",
     "rolling_origin",
 ]

@@ -24,7 +24,7 @@ from .export import build_bundle
 from .feed import FeedError, Snapshot, fetch_snapshot
 from .fleet import Fleet
 from .ingest import run_ingest
-from .oracle import CoverageModel, PresenceMatrix, rolling_origin
+from .oracle import CoverageModel, PresenceMatrix, latest_calibrator, rolling_origin
 from .rollup import rebuild_all
 from .routes import parse_route
 from .simulate import simulate_flights, simulate_network
@@ -676,6 +676,9 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         return 1
 
     model = CoverageModel.fit(matrix, reference_date=date.today())
+    calibrator = latest_calibrator(matrix)
+    if calibrator.knots:
+        model.calibrate_with(calibrator)
     positions = _select_positions(database, args)
     if not positions:
         print("no positions matched; try --fir EGTT or --airport EGLL", file=sys.stderr)
@@ -824,6 +827,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
             reference=reference,
             max_pairs=args.max_pairs,
             write_web_assets=not args.no_assets,
+            calibrate=not args.no_calibrate,
         )
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
@@ -956,6 +960,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_pub.add_argument("--out", help="output directory (default: ./dist)")
     p_pub.add_argument("--max-pairs", type=int, default=20_000)
     p_pub.add_argument("--no-assets", action="store_true", help="skip copying web/ into dist")
+    p_pub.add_argument(
+        "--no-calibrate", action="store_true", help="export raw probabilities (diagnostics)"
+    )
     p_pub.set_defaults(func=cmd_publish)
 
     sub.add_parser("version", parents=[common], help="print version").set_defaults(

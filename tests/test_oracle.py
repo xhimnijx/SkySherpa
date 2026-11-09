@@ -7,7 +7,15 @@ from datetime import date, timedelta
 
 import pytest
 
-from skysherpa.oracle import CoverageModel, ModelParams, PresenceMatrix, beta_ppf, rolling_origin
+from skysherpa.oracle import (
+    Calibrator,
+    CoverageModel,
+    ModelParams,
+    PresenceMatrix,
+    beta_ppf,
+    latest_calibrator,
+    rolling_origin,
+)
 
 
 def test_beta_ppf_uniform() -> None:
@@ -103,7 +111,54 @@ def test_recent_data_outweighs_old() -> None:
     assert recent > stale + 0.1, "the model must notice a position that just started"
 
 
-def test_backtest_needs_enough_data() -> None:
+def test_calibrator_is_monotone() -> None:
+    calibrator = Calibrator.fit([(0.1, 0), (0.2, 0), (0.3, 1), (0.4, 1), (0.5, 1)])
+    values = [calibrator.apply(p) for p in (0.05, 0.15, 0.25, 0.35, 0.45, 0.55)]
+    assert values == sorted(values)
+    assert all(0.0 <= value <= 1.0 for value in values)
+
+
+def test_model_applies_calibrator() -> None:
+    matrix = _matrix("EGLL_TWR", 28, {72, 73})
+    model = CoverageModel.fit(matrix, reference_date=date(2026, 9, 29))
+    raw = model.predict("EGLL_TWR", 2, 72).p
+    model.calibrate_with(Calibrator(knots=[(0.0, 0.0), (1.0, 0.5)]))
+    assert model.predict("EGLL_TWR", 2, 72).p == pytest.approx(raw * 0.5, abs=1e-6)
+
+
+def test_latest_calibrator_needs_two_windows() -> None:
+    matrix = _matrix("EGLL_TWR", 5, {72})
+    assert latest_calibrator(matrix).knots == []
+
+
+def test_latest_calibrator_fits_on_a_holdout() -> None:
+    start = date(2026, 9, 1)
+    rng = random.Random(9)
+    rows = []
+    for offset in range(40):
+        day = start + timedelta(days=offset)
+        for slot in range(96):
+            probability = 0.8 if 70 <= slot <= 80 else 0.05
+            rows.append((day, slot, 1 if rng.random() < probability else 0))
+    matrix = PresenceMatrix(days={"EGLL_TWR": rows})
+    calibrator = latest_calibrator(matrix, horizon_days=7)
+    assert calibrator.knots, "40 days is plenty for a one-week holdout"
+    assert all(0.0 <= knot[1] <= 1.0 for knot in calibrator.knots)
+
+
+def test_backtest_reports_walk_forward_calibration() -> None:
+    start = date(2026, 9, 1)
+    rng = random.Random(5)
+    rows = []
+    for offset in range(60):
+        day = start + timedelta(days=offset)
+        for slot in range(96):
+            probability = 0.9 if 70 <= slot <= 78 else 0.02
+            rows.append((day, slot, 1 if rng.random() < probability else 0))
+    matrix = PresenceMatrix(days={"EGLL_TWR": rows})
+    report = rolling_origin(matrix, folds=3, horizon_days=7)
+    assert report.calibrated_ece >= 0.0
+    assert any("walk-forward" in note for note in report.notes)
     matrix = _matrix("EGLL_TWR", 5, {72})
     report = rolling_origin(matrix, folds=2, horizon_days=7)
     assert report.predictions == 0

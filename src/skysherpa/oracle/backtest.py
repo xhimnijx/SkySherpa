@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from .model import CoverageModel, ModelParams, PresenceMatrix
+from .model import Calibrator, CoverageModel, ModelParams, PresenceMatrix
 
 __all__ = ["BacktestReport", "rolling_origin"]
 
@@ -34,6 +34,7 @@ class BacktestReport:
     brier_skill: float = 0.0
     auc: float = 0.0
     ece: float = 0.0
+    calibrated_ece: float = 0.0
     reliability_max_dev: float = 0.0
     interval_coverage: float = 0.0
     cells_checked: int = 0
@@ -159,6 +160,48 @@ def _beta_binomial_interval(
     return low, high
 
 
+def latest_calibrator(
+    matrix: PresenceMatrix,
+    *,
+    horizon_days: int = 7,
+    params: ModelParams | None = None,
+) -> Calibrator:
+    """Fit an isotonic map on a genuinely out-of-sample holdout.
+
+    Train on everything before the last ``horizon_days``, predict that holdout, and fit the
+    map to those predictions. The production model is then refitted on *all* the data and
+    given this map -- the standard walk-forward arrangement, and the only way the numbers
+    mean anything.
+    """
+    days = sorted({day for rows in matrix.days.values() for day, _, _ in rows})
+    if len(days) < horizon_days * 2:
+        return Calibrator(knots=[])
+
+    last_day = days[-1]
+    cutoff = last_day - timedelta(days=horizon_days)
+    training_rows = {
+        position: [row for row in rows if row[0] < cutoff]
+        for position, rows in matrix.days.items()
+    }
+    training = PresenceMatrix(
+        days={position: rows for position, rows in training_rows.items() if rows}
+    )
+    if not training.days:
+        return Calibrator(knots=[])
+
+    model = CoverageModel.fit(training, reference_date=cutoff, params=params)
+    samples: list[tuple[float, int]] = []
+    for position, rows in matrix.days.items():
+        for day, slot, online in rows:
+            if cutoff <= day <= last_day:
+                # No interval needed here: computing Beta quantiles for every holdout
+                # row is the difference between a 2-second and a 60-second backtest.
+                samples.append(
+                    (model.predict(position, day.weekday(), slot, with_interval=False).p, online)
+                )
+    return Calibrator.fit(samples)
+
+
 def rolling_origin(
     matrix: PresenceMatrix,
     *,
@@ -179,6 +222,7 @@ def rolling_origin(
     last_day = all_days[-1]
     samples: list[tuple[float, int]] = []
     baseline: list[tuple[float, int]] = []
+    fold_samples: list[list[tuple[float, int]]] = []
     cell_params: dict[tuple[str, int, int], list[tuple[float, float]]] = defaultdict(list)
     cell_outcomes: dict[tuple[str, int, int], list[int]] = defaultdict(list)
 
@@ -202,17 +246,20 @@ def rolling_origin(
             for position, rows in training.days.items()
         }
 
+        current: list[tuple[float, int]] = []
         for position, rows in matrix.days.items():
             for day, slot, online in rows:
                 if not (cutoff <= day < window_end):
                     continue
-                forecast = model.predict(position, day.weekday(), slot)
+                forecast = model.predict(position, day.weekday(), slot, with_interval=False)
                 samples.append((forecast.p, online))
+                current.append((forecast.p, online))
                 hits, total = base_rates.get(position, (1, 2))
                 baseline.append(((hits + 1) / (total + 2), online))
                 key = (position, day.weekday(), slot)
                 cell_params[key].append(model.beta_params(position, day.weekday(), slot))
                 cell_outcomes[key].append(online)
+        fold_samples.append(current)
         report.folds += 1
 
     if not samples:
@@ -243,6 +290,24 @@ def rolling_origin(
             covered += 1
     report.cells_checked = checked
     report.interval_coverage = covered / checked if checked else 0.0
+
+    # Walk-forward calibration: fit the isotonic map on one fold, apply it to the next.
+    # Fitting and evaluating on the same data would flatter the map into meaninglessness.
+    if len(fold_samples) > 1:
+        calibrated: list[tuple[float, int]] = []
+        for index in range(1, len(fold_samples)):
+            calibrator = Calibrator.fit(fold_samples[index - 1])
+            if not calibrator.knots:
+                continue
+            calibrated.extend(
+                (calibrator.apply(probability), outcome)
+                for probability, outcome in fold_samples[index]
+            )
+        if calibrated:
+            report.calibrated_ece, _, _ = _reliability(calibrated)
+            report.notes.append(
+                f"walk-forward calibration: ECE {report.ece:.3f} -> {report.calibrated_ece:.3f}"
+            )
 
     if report.brier_skill < 0.25:
         report.notes.append("below the 0.25 skill gate")

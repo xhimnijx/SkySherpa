@@ -224,6 +224,11 @@ class CoverageModel:
         self.params = params
         self.positions = positions
         self.observations = observations
+        self._calibrator: Calibrator | None = None
+
+    def calibrate_with(self, calibrator: Calibrator | None) -> None:
+        """Apply an isotonic recalibration map to every subsequent prediction."""
+        self._calibrator = calibrator
 
     # ---- fitting -------------------------------------------------------
 
@@ -384,6 +389,9 @@ class CoverageModel:
         total = a + b
         p = a / total if total > 0 else 0.5
 
+        if self._calibrator is not None:
+            p = self._calibrator.apply(p)
+
         if position_key in self._prior_sums:
             n_eff = max(0.0, total - self._prior_sums[position_key][weekday][slot])
         else:
@@ -392,6 +400,9 @@ class CoverageModel:
         if with_interval:
             lo = beta_ppf(0.05, a, b)
             hi = beta_ppf(0.95, a, b)
+            if self._calibrator is not None:
+                lo = self._calibrator.apply(lo)
+                hi = self._calibrator.apply(hi)
         else:
             lo = hi = p
         return Forecast(
