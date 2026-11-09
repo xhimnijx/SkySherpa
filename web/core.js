@@ -231,6 +231,8 @@ export function createPlanner(bundle) {
     positions,
     pairs,
     aircraft,
+    firDays = new Uint8Array(0),
+    airportDays = new Uint8Array(0),
   } = bundle;
   const width = meta.grid.width;
   const height = meta.grid.height;
@@ -343,6 +345,17 @@ export function createPlanner(bundle) {
     };
   }
 
+  // How many days of history support the number for this FIR or airport. Zero means the
+  // probability is the prior, which is a different kind of claim from an observation.
+  function firDayCount(index) {
+    return index > 0 && index <= firDays.length ? firDays[index - 1] : 0;
+  }
+
+  function airportDayCount(icao) {
+    const slot = airportSlot.get(icao);
+    return slot === undefined ? 0 : airportDays[slot] || 0;
+  }
+
   function routeProfile(departure, arrival, departAt, aircraftSpec, preset = PRESETS.airline) {
     const distance = haversineNm(
       [departure.lat, departure.lon],
@@ -355,6 +368,15 @@ export function createPlanner(bundle) {
     let covered = 0;
     let gapRun = 0;
     let longestGap = 0;
+    let evidenceSum = 0;
+    let evidenceCount = 0;
+    const noteEvidence = (days) => {
+      if (days > 0) {
+        evidenceSum += days;
+        evidenceCount += 1;
+      }
+    };
+
     for (let i = 0; i <= samples; i += 1) {
       const fraction = i / samples;
       const point = greatCircle(
@@ -363,7 +385,9 @@ export function createPlanner(bundle) {
         fraction,
       );
       const moment = new Date(departAt.getTime() + block * 60000 * fraction);
-      const probability = firProbability(firIndexAt(point[0], point[1]), hourIndex(moment), moment);
+      const firIndex = firIndexAt(point[0], point[1]);
+      const probability = firProbability(firIndex, hourIndex(moment), moment);
+      noteEvidence(firDayCount(firIndex));
       enroute += probability;
       if (probability >= 0.5) covered += 1;
       if (probability < 0.25) {
@@ -374,6 +398,11 @@ export function createPlanner(bundle) {
       }
     }
     enroute /= samples + 1;
+    noteEvidence(airportDayCount(departure.icao));
+    noteEvidence(airportDayCount(arrival.icao));
+    // Mean depth of the evidence we actually have, not of the airspace we do not: an
+    // unobserved FIR should not drag down a route that is otherwise well covered.
+    const days = evidenceCount ? Math.round(evidenceSum / evidenceCount) : 0;
     const arrivalMoment = new Date(departAt.getTime() + block * 60000);
     const departureLayers = layersAt(departure.icao, hourIndex(departAt), departAt);
     const arrivalLayers = layersAt(arrival.icao, hourIndex(arrivalMoment), arrivalMoment);
@@ -397,6 +426,7 @@ export function createPlanner(bundle) {
       arrivalP,
       departureLayers,
       arrivalLayers,
+      days,
       coveredShare: covered / (samples + 1),
       unicomShare: longestGap / (samples + 1),
     };
@@ -449,6 +479,7 @@ export function createPlanner(bundle) {
       arrivalP: profile.arrivalP,
       departureLayers: profile.departureLayers,
       arrivalLayers: profile.arrivalLayers,
+      days: profile.days,
       atc,
       durationFit,
       aircraftFit,
@@ -594,6 +625,8 @@ export function createPlanner(bundle) {
     firProbability,
     firCtrProbability,
     firFssProbability,
+    firDayCount,
+    airportDayCount,
     airportLayer,
     layersAt,
     firCodeOf,

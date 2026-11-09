@@ -417,19 +417,23 @@ async function loadBundle() {
   const binary = async (name) => (await fetch(`data/${name}?v=${version}`)).arrayBuffer();
   const json = async (name) => (await fetch(`data/${name}?v=${version}`)).json();
 
-  const [firs, airports, pairs, aircraft, polygons] = await Promise.all([
+  const [firs, airports, positions, pairs, aircraft, polygons] = await Promise.all([
     json("firs.json"),
     json("airports.json"),
+    json("positions.json"),
     json("pairs.json"),
     json("aircraft.json"),
     json("polygons.json"),
   ]);
-  const [firCtrBuf, firFssBuf, firGridBuf, airportLayersBuf] = await Promise.all([
-    binary("fir_ctr.bin"),
-    binary("fir_fss.bin"),
-    binary("fir_grid.bin"),
-    binary("airport_layers.bin"),
-  ]);
+  const [firCtrBuf, firFssBuf, firGridBuf, airportLayersBuf, firDaysBuf, airportDaysBuf] =
+    await Promise.all([
+      binary("fir_ctr.bin"),
+      binary("fir_fss.bin"),
+      binary("fir_grid.bin"),
+      binary("airport_layers.bin"),
+      binary("fir_days.bin"),
+      binary("airport_days.bin"),
+    ]);
 
   return {
     meta,
@@ -438,10 +442,13 @@ async function loadBundle() {
     pairs,
     aircraft,
     polygons,
+    positions,
     firCtr: new Uint8Array(firCtrBuf),
     firFss: new Uint8Array(firFssBuf),
     firGrid: new Uint16Array(firGridBuf),
     airportLayers: new Uint8Array(airportLayersBuf),
+    firDays: new Uint8Array(firDaysBuf),
+    airportDays: new Uint8Array(airportDaysBuf),
   };
 }
 
@@ -627,12 +634,16 @@ function renderBoard(outcome, query) {
       const active = selected && result.dep === selected.dep && result.arr === selected.arr;
       const pct = Math.round(result.atc * 100);
       const cls = pct >= 60 ? "good" : pct >= 35 ? "ok" : "thin";
+      const evidenceDays = Number(result.days) || 0;
+      const evidenceLabel = evidenceDays > 0 ? `${evidenceDays}d` : "prior";
+      const evidenceClass = evidenceDays >= 14 ? "" : "thin";
       return `
-      <button class="row ${active ? "active" : ""}" data-index="${index}">
+      <button class="row ${active ? "active" : ""}" data-index="${index}" title="Probability is based on ${evidenceDays || 0} day(s) of history for the airspace along this route">
         <span class="rank">${index + 1}</span>
         <span class="pair"><b>${result.dep}</b> → <b>${result.arr}</b>
           <small>${result.depName} to ${result.arrName}</small></span>
         <span class="stats">
+          <span class="days ${evidenceClass}">${evidenceLabel}</span>
           <span class="pct ${cls}">${pct}%</span>
           <span class="meta">${result.aircraft} · ${Math.floor(result.block / 60)}h${String(result.block % 60).padStart(2, "0")} · ${result.distance} nm</span>
         </span>

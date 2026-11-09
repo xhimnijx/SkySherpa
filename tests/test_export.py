@@ -187,6 +187,44 @@ def test_bundle_uses_atomic_writes(bundle) -> None:
     assert meta["pair_count"] >= 0
 
 
+def test_confidence_arrays_match_the_index(bundle) -> None:
+    """One evidence-depth byte per FIR and per airport, so the UI can say how sure it is."""
+    out, meta = bundle
+    fir_days = (out / "data" / "fir_days.bin").read_bytes()
+    airport_days = (out / "data" / "airport_days.bin").read_bytes()
+    assert len(fir_days) == meta["fir_count"]
+    assert len(airport_days) == meta["airport_count"]
+    assert max(fir_days) <= 255
+    assert max(airport_days) <= 255
+    assert meta["confidence"]["unit"] == "days"
+
+
+def test_publish_removes_stale_bundle_files(tmp_path: Path) -> None:
+    """A file from an older bundle layout must not survive the next publish.
+
+    The first implementation compared path prefixes and, on Windows, matched nothing and
+    deleted the entire data directory. This test exists because that actually happened.
+    """
+    database = Database(tmp_path / "stale.sqlite3")
+    database.initialize()
+    end = datetime(2026, 11, 9, 22, tzinfo=UTC)
+    simulate_network(database, days=21, seed=3, end=end)
+    simulate_flights(database, days=21, seed=4, end=end)
+    rebuild_all(database)
+
+    out = tmp_path / "dist"
+    build_bundle(database, out_dir=out, reference=_reference(), write_web_assets=False)
+    stale = out / "data" / "fir_prob.bin"
+    stale.write_bytes(b"from an older layout")
+    assert stale.exists()
+
+    build_bundle(database, out_dir=out, reference=_reference(), write_web_assets=False)
+    assert not stale.exists()
+    assert (out / "data" / "fir_ctr.bin").exists()
+    assert (out / "data" / "meta.json").exists()
+    database.close()
+
+
 def test_quantise_bounds() -> None:
     assert quantise(0.0) == 0
     assert quantise(1.0) == 255

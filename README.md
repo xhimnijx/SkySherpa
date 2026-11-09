@@ -61,9 +61,10 @@ python -m http.server 8099 --directory dist
 # open http://127.0.0.1:8099/
 ```
 
-What you get: a board ranked by expected ATC coverage for the time you actually fly, a
-canvas choropleth of where controllers are likely to be, a ribbon showing coverage along
-the selected route (including the airspace boundaries you will cross), and controls for
+What you get: a board ranked by expected ATC coverage for the time you actually fly, with
+the depth of history behind each number (56d, or "prior" when there is none), a canvas
+choropleth of where controllers are likely to be, a ribbon showing coverage along the
+selected route (including the airspace boundaries you will cross), and controls for
 departure time, flight length, airports, your fleet, and a style preset (airline ops, GA,
 or maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
 and the terminal score knows the difference between a delivery clearance and an approach

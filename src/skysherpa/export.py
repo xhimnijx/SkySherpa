@@ -367,6 +367,32 @@ def build_bundle(
         for t in catalog.types.values()
     ]
 
+    # ---- confidence: how much history sits behind each number -------------------
+    # The first version exported n_eff, the model's per-cell sample size. It is the
+    # statistically precise figure and it is useless in a UI: with 56 days of history a
+    # given (weekday, hour) cell still only holds ~8 observations, so every badge read
+    # "6d" and looked broken. What a user wants to know is "have you been watching this
+    # airspace for a day or a year", so export the observed window instead.
+    def _observed_days(position_keys: list[str]) -> int:
+        days: set = set()
+        for position in position_keys:
+            for day, _slot, _online in matrix.days.get(position, ()):
+                days.add(day)
+        return min(255, len(days))
+
+    fir_days = [
+        _observed_days(by_fir[code]["CTR"] + by_fir[code]["FSS"]) for code in fir_list
+    ]
+    airport_days = [
+        _observed_days(
+            by_airport[airport["icao"]]["DEL"]
+            + by_airport[airport["icao"]]["GND"]
+            + by_airport[airport["icao"]]["TWR"]
+            + by_airport[airport["icao"]]["APP"]
+        )
+        for airport in airports
+    ]
+
     generated = datetime.now(UTC)
     meta = {
         "version": 1,
@@ -380,6 +406,8 @@ def build_bundle(
         # available, including top-down cover from the layer above.
         "layers": ["del", "gnd", "twr", "app"],
         "airport_layer_bytes": 4 * HOURS_PER_WEEK,
+        # Observed-history depth behind each FIR/airport probability, in days.
+        "confidence": {"unit": "days"},
         "positions_modelled": len(model.positions),
         "days_observed": len({d for rows in matrix.days.values() for d, _, _ in rows}),
         "half_life_days": model.params.half_life_days,
@@ -391,6 +419,7 @@ def build_bundle(
     }
 
     files: dict[str, int] = {}
+    written_files: set[Path] = set()
 
     def _atomic_write(path: Path, data: bytes) -> None:
         """Write to a sibling temp file, then rename.
@@ -403,7 +432,8 @@ def build_bundle(
         temp = path.with_name(f".{path.name}.tmp")
         temp.write_bytes(data)
         os.replace(temp, path)
-        files[str(path.relative_to(out))] = path.stat().st_size
+        written_files.add(path)
+        files[path.relative_to(out).as_posix()] = path.stat().st_size
 
     def write_json(name: str, payload: Any) -> None:
         _atomic_write(
@@ -432,6 +462,8 @@ def build_bundle(
     write_json("pairs.json", pairs)
     write_json("aircraft.json", aircraft)
     write_json("polygons.json", polygons)
+    write_binary("fir_days.bin", bytes(fir_days))
+    write_binary("airport_days.bin", bytes(airport_days))
     # Position index: lets the browser map a live controller callsign to the FIR or
     # airport it serves, so the forecast can be anchored to who is online right now.
     write_json(
@@ -454,5 +486,14 @@ def build_bundle(
                 source = web_dir / asset
                 if source.is_file():
                     _atomic_write(out / asset, source.read_bytes())
+
+    # Remove anything left over from an older bundle layout. Without this the deploy
+    # directory accumulates dead files (fir_prob.bin from before the layer split, say) and
+    # nobody notices until the bundle is twice the size it should be. Compared against the
+    # set of paths actually written -- a path-prefix test looked green on Linux and deleted
+    # every file on Windows, where relative paths use backslashes.
+    for stale in data_dir.iterdir():
+        if stale.is_file() and stale not in written_files and not stale.name.endswith(".tmp"):
+            stale.unlink()
 
     return BundleResult(out_dir=out, files=files)

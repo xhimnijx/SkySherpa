@@ -488,6 +488,17 @@ dialog input[type="search"] {
   color: var(--good);
 }
 
+.days {
+  font-size: 10px;
+  color: #5b738a;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.days.thin {
+  color: var(--ok);
+}
+
 .pct.ok {
   color: var(--ok);
 }

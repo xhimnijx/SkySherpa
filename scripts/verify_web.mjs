@@ -19,6 +19,8 @@ const bundle = {
   firCtr: await bin("fir_ctr.bin"),
   firFss: await bin("fir_fss.bin"),
   airportLayers: await bin("airport_layers.bin"),
+  firDays: await bin("fir_days.bin"),
+  airportDays: await bin("airport_days.bin"),
   firGrid: new Uint16Array((await bin("fir_grid.bin")).buffer),
 };
 
@@ -67,6 +69,7 @@ const summary = {
   top: outcome.results.map((result) => ({
     route: `${result.dep}-${result.arr}`,
     aircraft: result.aircraft,
+    evidence_days: result.days,
     block_min: result.block,
     distance_nm: result.distance,
     atc_pct: Number((result.atc * 100).toFixed(1)),
@@ -81,7 +84,8 @@ if (process.argv.includes("--table")) {
   for (const row of summary.top) {
     console.log(
       `${row.route.padEnd(11)} ${row.aircraft.padEnd(5)} ${String(row.block_min).padStart(4)}m ` +
-        `${row.atc_pct.toFixed(1).padStart(5)}% atc  ${row.why}`,
+        `${row.atc_pct.toFixed(1).padStart(5)}% atc ` +
+        `${String(row.evidence_days ?? 0).padStart(4)}d  ${row.why}`,
     );
   }
 } else {
