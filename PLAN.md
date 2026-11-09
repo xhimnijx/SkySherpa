@@ -649,23 +649,24 @@ rating tool; anything that automates flying; anything that needs a cloud account
 
 ---
 
-## 18. Immediate next actions (P1, in order)
+## 18. Immediate next actions (P2, in order)
 
-**Done:** store + schema application, the ingest loop, sessionisation with reconnect
-merging, flight lifecycle + RDP trajectory simplification, crash-safe reopen, and the gap
-ledger. The collector is running.
+**Done:** store + schema, ingest loop, sessionisation with reconnect merging, flight
+lifecycle, rollups (presence matrix with materialised *absence*, route corpus, airport
+hours), the synthetic network simulator, the hierarchical coverage model, and a
+rolling-origin backtest that currently passes all four gates on synthetic data
+(skill 0.54, calibration error 0.036, AUC 0.97).
 
 Remaining:
 
-1. `simulate.py`: a synthetic network generator, so P2/P3 can be built and CI-tested
-   before real history accrues (the calendar problem, §13.1).
-2. Hourly rollup: sessions → `position_slot`, flights → `airport_hourly`/`pair_stat`.
-3. `oracle/` package skeleton: presence-matrix builder + backtest harness, before the
-   real model lands.
-4. `skysherpa up`: supervisor (ingest + oracle + serve) with `/healthz` and structured logs.
-5. `staticdata`: checksum pinning and an offline fallback path.
-6. Deploy on the target laptop so the clock runs — already started; treat any restart as
-   a data-loss event and check `skysherpa db` for gaps.
+1. **Calibration**: the backtest shows a systematic ~0.1 under-prediction in the 35-70%
+   band. Fit the isotonic map on an earlier window and apply it to a later one, then
+   re-run the gates. This is the last piece of "calibrated, not confident".
+2. **Real-data backtest**: once the collector has ~3 weeks, run the same gates on the
+   real network. Expect worse numbers; record them honestly.
+3. Demand nowcast from filed intent (§9.4): declared arrivals per airport-hour.
+4. `skysherpa up`: supervisor (ingest + rollup + serve) with `/healthz`.
+5. Dispatcher (P3): candidate generation, utility, Pareto, explanations.
 
 ---
 

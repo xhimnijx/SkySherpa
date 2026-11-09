@@ -67,32 +67,38 @@ position's all-week rate with a strength set by how much data that weekday has.
 
 ## 4. Hierarchical prior (empirical Bayes)
 
-For each group `g` — facility type crossed with region, e.g. *(TWR, UK)*, *(CTR, Europe)* — fit a
-Beta prior over the *position-level* rates in that group:
+The prior has to be local in three dimensions -- facility type, weekday, and hour -- because
+each omission produces a specific, measurable bias:
+
+| Prior fitted on | Failure it caused | Measured effect |
+| --- | --- | --- |
+| Position's 24-hour average | A 6-hour tower (mean 0.25) got a 0.25 prior for its busy evening slots | evening flights under-predicted by ~0.2 |
+| Facility × hour, all weekdays | A weekday-only tower looked "30% likely" on Saturday, when it is simply absent | 21k predictions at 0.23 where the truth was 0.009 |
+| Zero-variance fallback `Beta(2,2)` | When every position is offline at 03:00, the moment estimator divides by zero and the old fallback centred the prior on 50% | same 0.23 cluster |
+
+So the prior is fitted at the finest level the data supports: **(group, weekday, slot)**,
+falling back to **(group, slot)**, then **(all, slot)**, then `Beta(1,1)`. Groups need at
+least three positions before they get their own table; the degenerate case (all positions
+agreeing) is treated as *information* and yields a strong prior at the shared rate, not a
+weak one in the middle.
+
+Within a position, weekday pooling is deliberately weak (`τ = 0.5` pseudo-observations).
+It exists only to stop a division by zero for a weekday that has never been observed; two
+months of data gives each weekday enough signal of its own, and pooling harder erases the
+structure the forecast is for.
+
+**Why this matters.** Most positions are rare. A position observed on three Tuesdays at
+21:00 tells you almost nothing on its own; the group tells you it is probably a
+Tuesday-evening tower like every other. Shrinkage is what turns a sparse, gappy dataset
+into a usable product. The posterior mean:
 
 ```
-m_g = mean_i (k_i / n_i)
-v_g = var_i  (k_i / n_i)
-
-a0_g = m_g · ( m_g(1−m_g)/v_g − 1 )
-b0_g = (1−m_g) · ( m_g(1−m_g)/v_g − 1 )
+p̂_{p,d,s} = (a0_g,d,s + k̃_{p,d,s}) / (a0_g,d,s + b0_g,d,s + ñ_{p,d,s})
 ```
 
-clipped to `a0, b0 ∈ [0.5, 50]`, with fallbacks when a group has fewer than 20 positions: widen to
-facility type globally, then to the network.
-
-**Why this matters.** Most positions are rare. A position observed on three Tuesdays at 21:00 tells
-you almost nothing on its own; the group prior tells you it is probably a Tuesday-evening tower like
-every other. Shrinkage is what turns a sparse, gappy dataset into a usable product. The posterior
-mean:
-
-```
-p̂_{p,s} = (a0_g + k̃_{p,s}) / (a0_g + b0_g + ñ_{p,s})
-```
-
-and the 90% interval is the Beta quantile pair. Positions with a lot of data converge to their
-empirical rate; positions with little data sit near the group mean with a wide interval. Exactly
-the behaviour we want.
+and the 90% interval is the Beta quantile pair. Positions with a lot of data converge to
+their empirical rate; positions with little data sit near the group mean with a wide
+interval. Exactly the behaviour we want.
 
 ---
 

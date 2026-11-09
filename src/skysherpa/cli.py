@@ -13,6 +13,8 @@ import platform
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
 
 from . import __version__, doctor
 from .aircraft import CLASSES, ENGINES, SIMS, AircraftCatalog, load_catalog
@@ -21,7 +23,10 @@ from .config import Settings
 from .feed import FeedError, Snapshot, fetch_snapshot
 from .fleet import Fleet
 from .ingest import run_ingest
+from .oracle import CoverageModel, PresenceMatrix, rolling_origin
+from .rollup import rebuild_all
 from .routes import parse_route
+from .simulate import simulate_flights, simulate_network
 from .staticdata import StaticReference, load_reference
 from .store import Database
 
@@ -574,6 +579,225 @@ def cmd_db(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- forecasting
+
+
+HEATMAP = " .:-=+*#%@"
+
+
+def _open_db(settings: Settings) -> Database:
+    database = Database(settings.data_dir / "skysherpa.sqlite3")
+    if not database.path.exists():
+        raise FileNotFoundError(
+            f"no database at {database.path}; run `skysherpa ingest --once` or "
+            "`skysherpa simulate` first"
+        )
+    database.initialize()
+    return database
+
+
+def cmd_rollup(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    database = _open_db(settings)
+    result = rebuild_all(database)
+    print(
+        f"rolled up: {result.slots:,} presence slots | {result.pairs:,} city pairs | "
+        f"{result.airports:,} airport-hours | {result.variants:,} route variants"
+    )
+    return 0
+
+
+def cmd_simulate(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    settings.ensure_dirs()
+    path = settings.data_dir / "skysherpa.sqlite3"
+    if path.exists():
+        if not args.force:
+            print(f"{path} already exists; use --force to replace it", file=sys.stderr)
+            return 2
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(path) + suffix)
+            if candidate.exists():
+                candidate.unlink()
+
+    database = Database(path)
+    database.initialize()
+    end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    network = simulate_network(database, days=args.days, seed=args.seed, end=end)
+    flights = simulate_flights(database, days=args.days, seed=args.seed + 1, end=end)
+    result = rebuild_all(database)
+    print(
+        f"synthetic network: {network.positions} positions | {network.sessions:,} sessions | "
+        f"{flights:,} flights over {args.days} days"
+    )
+    print(
+        f"rolled up: {result.slots:,} presence slots | {result.pairs:,} city pairs | "
+        f"{result.airports:,} airport-hours"
+    )
+    print("")
+    print(f"  try: skysherpa coverage --data-dir {settings.data_dir} --fir EGTT")
+    return 0
+
+
+def _select_positions(database: Database, args: argparse.Namespace) -> list[str]:
+    if args.position:
+        return [args.position.upper()]
+    clauses = ["1=1"]
+    params: list[str] = []
+    if args.fir:
+        clauses.append("fir_code = ?")
+        params.append(args.fir.upper())
+    if args.airport:
+        clauses.append("airport_icao = ?")
+        params.append(args.airport.upper())
+    if args.facility:
+        facilities = [item.strip().upper() for item in args.facility.split(",") if item.strip()]
+        clauses.append(f"facility IN ({','.join('?' for _ in facilities)})")
+        params.extend(facilities)
+    query = (
+        "SELECT position_key FROM position WHERE " + " AND ".join(clauses)
+        + " ORDER BY position_key"
+    )
+    return [str(row["position_key"]) for row in database.query(query, params)]
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    try:
+        database = _open_db(settings)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    matrix = PresenceMatrix.from_db(database)
+    if not matrix.days:
+        print("no presence data yet; run `skysherpa rollup` first", file=sys.stderr)
+        return 1
+
+    model = CoverageModel.fit(matrix, reference_date=date.today())
+    positions = _select_positions(database, args)
+    if not positions:
+        print("no positions matched; try --fir EGTT or --airport EGLL", file=sys.stderr)
+        return 1
+
+    scoring = {position: model.mean_probability(position) for position in positions}
+    positions = sorted(positions, key=lambda item: scoring[item], reverse=True)[: args.top]
+
+    grid = [[0.0] * 24 for _ in range(7)]
+    for weekday in range(7):
+        for hour in range(24):
+            total = 0.0
+            for position in positions:
+                p_hour = sum(
+                    model.predict(position, weekday, hour * 4 + part, with_interval=False).p
+                    for part in range(4)
+                ) / 4.0
+                total += p_hour
+            grid[weekday][hour] = total / len(positions)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "positions": positions,
+                    "mean_probability": {p: round(scoring[p], 3) for p in positions},
+                    "grid": [[round(value, 3) for value in row] for row in grid],
+                    "days_observed": len({d for rows in matrix.days.values() for d, _, _ in rows}),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    label = args.fir or args.airport or args.position or "all positions"
+    print(f"staffing forecast - {label} - {len(positions)} position(s)")
+    print(
+        f"  trained on {matrix.observations():,} slot observations, "
+        f"{len({d for rows in matrix.days.values() for d, _, _ in rows})} days, "
+        f"half-life {model.params.half_life_days:.0f}d"
+    )
+    print("  legend: share of these positions expected online")
+    print("          space=0%  .=10%  :=20%  -=30%  ==40%  +=50%  *=60%  #=70%  %=80%  @=90%+")
+    print("")
+    print("       " + " ".join(f"{hour:02d}" for hour in range(24)))
+    for weekday in range(7):
+        name = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[weekday]
+        cells = "  ".join(HEATMAP[min(9, int(value * 10))] for value in grid[weekday])
+        print(f"  {name}  {cells}")
+    print("")
+
+    busiest = sorted(positions, key=lambda item: scoring[item], reverse=True)[:6]
+    for position in busiest:
+        peak_hour = max(
+            range(24),
+            key=lambda hour: sum(
+                model.predict(position, weekday, hour * 4 + part, with_interval=False).p
+                for weekday in range(7)
+                for part in range(4)
+            ),
+        )
+        print(
+            f"  {position:<12} mean {scoring[position] * 100:5.1f}%   "
+            f"peak {peak_hour:02d}:00 UTC"
+        )
+    return 0
+
+
+def cmd_backtest(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    try:
+        database = _open_db(settings)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    matrix = PresenceMatrix.from_db(database)
+    report = rolling_origin(matrix, folds=args.folds, horizon_days=args.horizon)
+    if args.json:
+        payload = report.as_dict()
+        payload["notes"] = report.notes
+        payload["gates"] = [
+            {"name": name, "passed": passed, "value": value}
+            for name, passed, value in report.gates()
+        ]
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if report.predictions == 0:
+        print("not enough history to backtest yet")
+        for note in report.notes:
+            print(f"  {note}")
+        return 1
+
+    print(f"rolling-origin backtest - {report.folds} folds x {args.horizon} days")
+    print(
+        f"  {report.predictions:,} held-out predictions across {report.positions} positions"
+    )
+    print("")
+    print(f"  {'brier':<22}{report.brier:.4f}   baseline {report.brier_baseline:.4f}")
+    print(f"  {'brier skill':<22}{report.brier_skill:.4f}")
+    print(f"  {'auc':<22}{report.auc:.4f}")
+    print(f"  {'calibration error':<22}{report.ece:.4f}")
+    print(f"  {'worst bin (1%+)':<22}{report.reliability_max_dev:.4f}")
+    print(
+        f"  {'interval coverage':<22}{report.interval_coverage:.4f}"
+        f"   over {report.cells_checked:,} cells"
+    )
+    print("")
+    failures = 0
+    for name, passed, value in report.gates():
+        print(f"  {'PASS' if passed else 'FAIL'}  {name}: {value}")
+        failures += 0 if passed else 1
+    if args.bins:
+        print("")
+        print(f"  {'predicted':>10} {'observed':>9} {'n':>8}")
+        for mean_p, observed, count in report.bins:
+            print(f"  {mean_p:>10.3f} {observed:>9.3f} {count:>8,}")
+    for note in report.notes:
+        print(f"  note: {note}")
+    return 1 if failures else 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -654,6 +878,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_db = sub.add_parser("db", parents=[common], help="database status")
     p_db.add_argument("--json", action="store_true")
     p_db.set_defaults(func=cmd_db)
+
+    p_rollup = sub.add_parser(
+        "rollup", parents=[common], help="rebuild presence and route aggregates"
+    )
+    p_rollup.set_defaults(func=cmd_rollup)
+
+    p_sim = sub.add_parser(
+        "simulate", parents=[common], help="build a synthetic network for testing"
+    )
+    p_sim.add_argument("--days", type=int, default=56)
+    p_sim.add_argument("--seed", type=int, default=11)
+    p_sim.add_argument("--force", action="store_true", help="replace an existing database")
+    p_sim.set_defaults(func=cmd_simulate)
+
+    p_cov = sub.add_parser(
+        "coverage", parents=[common], help="forecast coverage as a weekly heatmap"
+    )
+    p_cov.add_argument("--fir", help="e.g. EGTT")
+    p_cov.add_argument("--airport", help="e.g. EGLL")
+    p_cov.add_argument("--position", help="a single position key")
+    p_cov.add_argument("--facility", help="comma separated, e.g. CTR,FSS")
+    p_cov.add_argument("--top", type=int, default=100)
+    p_cov.add_argument("--json", action="store_true")
+    p_cov.set_defaults(func=cmd_coverage)
+
+    p_bt = sub.add_parser(
+        "backtest", parents=[common], help="rolling-origin forecast evaluation"
+    )
+    p_bt.add_argument("--folds", type=int, default=4)
+    p_bt.add_argument("--horizon", type=int, default=7)
+    p_bt.add_argument("--bins", action="store_true", help="print the reliability diagram")
+    p_bt.add_argument("--json", action="store_true")
+    p_bt.set_defaults(func=cmd_backtest)
 
     sub.add_parser("version", parents=[common], help="print version").set_defaults(
         func=cmd_version
