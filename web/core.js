@@ -22,6 +22,50 @@ const LAYER_NAMES = { del: "delivery", gnd: "ground", twr: "tower", app: "approa
 export const DEPARTURE_WEIGHTS = { del: 0.15, gnd: 0.15, twr: 0.35, app: 0.35 };
 export const ARRIVAL_WEIGHTS = { del: 0.0, gnd: 0.15, twr: 0.35, app: 0.5 };
 
+// Presets. `renormalise` divides the terminal score by the weight of the layers an
+// airport has ever staffed, which is right for GA (a grass strip should not be punished
+// for having no delivery position) and wrong for airline ops (depth is the point).
+export const PRESETS = {
+  airline: {
+    label: "Airline ops",
+    weights: { atc: 0.6, duration: 0.2, fit: 0.1, popularity: 0.1 },
+    departure: DEPARTURE_WEIGHTS,
+    arrival: ARRIVAL_WEIGHTS,
+    renormalise: false,
+    classes: ["airliner", "regional"],
+  },
+  ga: {
+    label: "GA / sightseeing",
+    weights: { atc: 0.45, duration: 0.25, fit: 0.15, popularity: 0.15 },
+    departure: { del: 0, gnd: 0, twr: 0.5, app: 0.5 },
+    arrival: { del: 0, gnd: 0, twr: 0.5, app: 0.5 },
+    renormalise: true,
+    classes: ["general", "helicopter"],
+  },
+  max: {
+    label: "Maximum ATC",
+    weights: { atc: 0.85, duration: 0.05, fit: 0.05, popularity: 0.05 },
+    departure: DEPARTURE_WEIGHTS,
+    arrival: ARRIVAL_WEIGHTS,
+    renormalise: false,
+    classes: null,
+  },
+};
+
+export function layerScore(layers, weights, mask = 0, renormalise = false) {
+  let weightSum = 0;
+  let total = 0;
+  for (let index = 0; index < LAYERS.length; index += 1) {
+    const layer = LAYERS[index];
+    const weight = weights[layer] || 0;
+    if (weight <= 0) continue;
+    if (renormalise && mask && !(mask & (1 << index))) continue;
+    weightSum += weight;
+    total += weight * (layers[layer] || 0);
+  }
+  return weightSum > 0 ? total / weightSum : 0;
+}
+
 // En-route: a centre controls, a flight service station informs. FSS is worth something
 // when nobody is controlling, and nothing extra when a centre is already on.
 const FSS_VALUE = 0.35;
@@ -155,7 +199,7 @@ export function createPlanner(bundle) {
     };
   }
 
-  function routeProfile(departure, arrival, departAt, aircraftSpec) {
+  function routeProfile(departure, arrival, departAt, aircraftSpec, preset = PRESETS.airline) {
     const distance = haversineNm(
       [departure.lat, departure.lon],
       [arrival.lat, arrival.lon],
@@ -189,8 +233,18 @@ export function createPlanner(bundle) {
     const arrivalMoment = new Date(departAt.getTime() + block * 60000);
     const departureLayers = layersAt(departure.icao, hourIndex(departAt));
     const arrivalLayers = layersAt(arrival.icao, hourIndex(arrivalMoment));
-    const departureP = terminalScore(departureLayers, DEPARTURE_WEIGHTS);
-    const arrivalP = terminalScore(arrivalLayers, ARRIVAL_WEIGHTS);
+    const departureP = layerScore(
+      departureLayers,
+      preset.departure,
+      departure.stack || 0,
+      preset.renormalise,
+    );
+    const arrivalP = layerScore(
+      arrivalLayers,
+      preset.arrival,
+      arrival.stack || 0,
+      preset.renormalise,
+    );
     return {
       distance,
       block,
@@ -204,12 +258,12 @@ export function createPlanner(bundle) {
     };
   }
 
-  function score(pair, departAt, aircraftSpec, weights, blockTarget, tolerance) {
+  function score(pair, departAt, aircraftSpec, weights, preset, blockTarget, tolerance) {
     const departure = airportByIcao.get(pair.d);
     const arrival = airportByIcao.get(pair.a);
     if (!departure || !arrival) return null;
 
-    const profile = routeProfile(departure, arrival, departAt, aircraftSpec);
+    const profile = routeProfile(departure, arrival, departAt, aircraftSpec, preset);
     if (profile.distance > aircraftSpec.range_nm * 0.92) return null;
     if (blockTarget) {
       if (Math.abs(profile.block - blockTarget) > tolerance) return null;
@@ -221,14 +275,27 @@ export function createPlanner(bundle) {
       : 0.5;
     const popularity = Math.min(1, Math.log1p(pair.n) / Math.log(50));
 
+    // Using the right aeroplane for the sector. A 777 on a 900 nm hop is technically
+    // legal and practically absurd; a light aircraft at 90% of its range is the opposite
+    // mistake. Both are penalised, the middle of the envelope is not.
+    const utilisation = profile.distance / Math.max(1, aircraftSpec.range_nm);
+    const aircraftFit =
+      utilisation < 0.2
+        ? Math.max(0, utilisation / 0.2)
+        : utilisation > 0.75
+          ? Math.max(0, (1 - utilisation) / 0.25)
+          : 1;
+
     const utility =
       weights.atc * atc +
       weights.duration * durationFit +
+      (weights.fit || 0) * aircraftFit +
       weights.popularity * popularity;
 
     return {
       dep: pair.d,
       arr: pair.a,
+      aircraft: aircraftSpec.icao,
       depName: departure.name,
       arrName: arrival.name,
       block: profile.block,
@@ -240,6 +307,7 @@ export function createPlanner(bundle) {
       arrivalLayers: profile.arrivalLayers,
       atc,
       durationFit,
+      aircraftFit,
       popularity,
       utility,
       observed: pair.n,
@@ -251,8 +319,19 @@ export function createPlanner(bundle) {
 
   function plan(query) {
     const started = performance.now();
-    const aircraftSpec = aircraftByIcao.get(query.aircraft) ?? aircraftByIcao.get("A20N");
-    const weights = { atc: 0.7, duration: 0.2, popularity: 0.1, ...(query.weights || {}) };
+    const preset = PRESETS[query.preset] || PRESETS.airline;
+    const weights = { ...preset.weights, ...(query.weights || {}) };
+    const requested = Array.isArray(query.aircraft) ? query.aircraft : [query.aircraft];
+    let specs = requested
+      .map((code) => aircraftByIcao.get(code))
+      .filter((spec) => spec !== undefined);
+    // A preset narrows the fleet to what the style implies, but never to nothing: if the
+    // user owns only airliners, GA mode still has to produce an answer.
+    if (preset.classes) {
+      const suited = specs.filter((spec) => preset.classes.includes(spec.class));
+      if (suited.length) specs = suited;
+    }
+    if (!specs.length) specs = [aircraftByIcao.get("A20N")].filter(Boolean);
     const departAt = query.departAt instanceof Date ? query.departAt : new Date(query.departAt);
 
     const results = [];
@@ -261,15 +340,22 @@ export function createPlanner(bundle) {
       if (query.from && pair.d !== query.from) continue;
       if (query.to && pair.a !== query.to) continue;
       evaluated += 1;
-      const scored = score(
-        pair,
-        departAt,
-        aircraftSpec,
-        weights,
-        query.blockMinutes,
-        query.tolerance ?? 45,
-      );
-      if (scored) results.push(scored);
+
+      // One route, every aircraft the user owns: keep the best airframe for it.
+      let best = null;
+      for (const spec of specs) {
+        const candidate = score(
+          pair,
+          departAt,
+          spec,
+          weights,
+          preset,
+          query.blockMinutes,
+          query.tolerance ?? 45,
+        );
+        if (candidate && (!best || candidate.utility > best.utility)) best = candidate;
+      }
+      if (best) results.push(best);
     }
     results.sort((a, b) => b.utility - a.utility);
     const limit = query.limit ?? 20;
@@ -277,7 +363,8 @@ export function createPlanner(bundle) {
       results: results.slice(0, limit),
       evaluated,
       matched: results.length,
-      aircraft: aircraftSpec.icao,
+      aircraft: specs.map((spec) => spec.icao).join(", "),
+      preset: query.preset || "airline",
       elapsedMs: performance.now() - started,
     };
   }

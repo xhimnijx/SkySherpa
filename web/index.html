@@ -47,8 +47,17 @@
           <select id="to"></select>
         </div>
         <div class="group">
-          <label for="aircraft">Aircraft</label>
-          <select id="aircraft"></select>
+          <label for="aircraft">Fleet <span id="fleetCount" class="count"></span></label>
+          <button id="fleetButton" type="button" class="ghost">Choose aircraft</button>
+        </div>
+
+        <div class="group">
+          <label for="preset">Style</label>
+          <select id="preset">
+            <option value="airline">Airline ops — full stacks, big airports</option>
+            <option value="ga">GA / sightseeing — local fields, shorter hops</option>
+            <option value="max">Maximum ATC — coverage above all</option>
+          </select>
         </div>
 
         <fieldset>
@@ -79,5 +88,19 @@
     </main>
 
     <script type="module" src="app.js"></script>
+
+    <dialog id="fleetDialog">
+      <h2>Your fleet</h2>
+      <p class="dialog-hint">
+        Pick the aircraft you actually fly. Each route is then scored with whichever of
+        them suits it best — a short hop will pick the Dash 8, a long one the widebody.
+      </p>
+      <input id="fleetSearch" type="search" placeholder="Search aircraft or type code…" />
+      <div id="fleetList" class="fleet-list"></div>
+      <div class="dialog-actions">
+        <button id="fleetCancel" type="button" class="ghost">Cancel</button>
+        <button id="fleetApply" type="button" class="primary">Use these</button>
+      </div>
+    </dialog>
   </body>
 </html>

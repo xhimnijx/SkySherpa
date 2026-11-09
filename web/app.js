@@ -1,7 +1,7 @@
 // SkySherpa app: load the published bundle, plan locally, render a board and a map.
 // No framework, no build step. Everything below is DOM + canvas.
 
-import { createPlanner, explain, greatCircle, hourIndex } from "./core.js";
+import { PRESETS, createPlanner, explain, greatCircle, hourIndex } from "./core.js";
 
 const statusEl = document.getElementById("status");
 const boardEl = document.getElementById("board");
@@ -14,7 +14,14 @@ const controls = {
   blockOut: document.getElementById("blockOut"),
   from: document.getElementById("from"),
   to: document.getElementById("to"),
-  aircraft: document.getElementById("aircraft"),
+  preset: document.getElementById("preset"),
+  fleetButton: document.getElementById("fleetButton"),
+  fleetCount: document.getElementById("fleetCount"),
+  fleetDialog: document.getElementById("fleetDialog"),
+  fleetList: document.getElementById("fleetList"),
+  fleetSearch: document.getElementById("fleetSearch"),
+  fleetApply: document.getElementById("fleetApply"),
+  fleetCancel: document.getElementById("fleetCancel"),
   atc: document.getElementById("wAtc"),
   duration: document.getElementById("wDuration"),
   popularity: document.getElementById("wPopularity"),
@@ -30,6 +37,75 @@ let suggestionInfo = null; // the best upcoming window, only when "now" is quiet
 
 function formatZ(date) {
   return `${date.toISOString().slice(11, 16)}Z`;
+}
+
+// ---- fleet ----------------------------------------------------------------
+
+const FLEET_KEY = "skysherpa.fleet";
+let fleet = ["A20N"];
+
+function loadFleet() {
+  try {
+    const raw = localStorage.getItem(FLEET_KEY);
+    if (!raw) return ["A20N"];
+    const parsed = JSON.parse(raw);
+    const valid = Array.isArray(parsed)
+      ? parsed.filter((code) => planner.aircraftByIcao.has(code))
+      : [];
+    return valid.length ? valid : ["A20N"];
+  } catch (error) {
+    return ["A20N"];
+  }
+}
+
+function saveFleet() {
+  try {
+    localStorage.setItem(FLEET_KEY, JSON.stringify(fleet));
+  } catch (error) {
+    /* private mode: the session still works, it just will not remember */
+  }
+}
+
+function updateFleetLabel() {
+  controls.fleetCount.textContent = `(${fleet.length})`;
+  if (fleet.length === 1) {
+    const aircraft = planner.aircraftByIcao.get(fleet[0]);
+    controls.fleetButton.textContent = aircraft ? `${fleet[0]} — ${aircraft.name}` : fleet[0];
+  } else {
+    controls.fleetButton.textContent = `${fleet.slice(0, 3).join(", ")}${fleet.length > 3 ? "…" : ""}`;
+  }
+}
+
+function buildFleetOptions() {
+  const rows = [...planner.aircraft]
+    .sort((a, b) => a.class.localeCompare(b.class) || a.name.localeCompare(b.name))
+    .map(
+      (aircraft) => `
+      <label class="fleet-item" data-search="${`${aircraft.icao} ${aircraft.name} ${aircraft.class}`.toLowerCase()}">
+        <input type="checkbox" value="${aircraft.icao}" ${fleet.includes(aircraft.icao) ? "checked" : ""} />
+        <span><b>${aircraft.icao}</b> ${aircraft.name}</span>
+        <em>${aircraft.class}</em>
+      </label>`,
+    )
+    .join("");
+  controls.fleetList.innerHTML = rows;
+}
+
+function openFleet() {
+  buildFleetOptions();
+  controls.fleetSearch.value = "";
+  controls.fleetDialog.showModal();
+}
+
+function applyFleet() {
+  const checked = [...controls.fleetList.querySelectorAll("input:checked")].map(
+    (input) => input.value,
+  );
+  if (checked.length) fleet = checked;
+  saveFleet();
+  updateFleetLabel();
+  controls.fleetDialog.close();
+  recompute();
 }
 
 async function loadBundle() {
@@ -73,19 +149,6 @@ function populateSelects() {
     .join("");
   controls.from.innerHTML = `<option value="">anywhere</option>${options}`;
   controls.to.innerHTML = `<option value="">anywhere</option>${options}`;
-
-  const classes = [...new Set(planner.aircraft.map((a) => a.class))].sort();
-  controls.aircraft.innerHTML = classes
-    .map((klass) => {
-      const group = planner.aircraft
-        .filter((a) => a.class === klass)
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((a) => `<option value="${a.icao}">${a.icao} — ${a.name}</option>`)
-        .join("");
-      return `<optgroup label="${klass}">${group}</optgroup>`;
-    })
-    .join("");
-  controls.aircraft.value = "A20N";
 }
 
 function departureTime() {
@@ -115,7 +178,8 @@ function recompute() {
     tolerance: Math.max(30, Math.round(block * 0.25)),
     from: controls.from.value || null,
     to: controls.to.value || null,
-    aircraft: controls.aircraft.value || "A20N",
+    aircraft: fleet,
+    preset: controls.preset.value || "airline",
     limit: 18,
     weights: {
       atc: Number(controls.atc.value) / 100,
@@ -187,7 +251,7 @@ function renderBoard(outcome, query) {
           <small>${result.depName} to ${result.arrName}</small></span>
         <span class="stats">
           <span class="pct ${cls}">${pct}%</span>
-          <span class="meta">${Math.floor(result.block / 60)}h${String(result.block % 60).padStart(2, "0")} · ${result.distance} nm</span>
+          <span class="meta">${result.aircraft} · ${Math.floor(result.block / 60)}h${String(result.block % 60).padStart(2, "0")} · ${result.distance} nm</span>
         </span>
         <span class="why">${explain(result)}</span>
       </button>`;
@@ -202,7 +266,7 @@ function renderBoard(outcome, query) {
   boardEl.innerHTML = `
     <div class="board-head">
       <span>${outcome.matched} flights · ${Math.max(0.1, outcome.elapsedMs).toFixed(1)} ms · departing ${formatZ(query.departAt)}</span>
-      <span>${outcome.aircraft}</span>
+      <span>${(PRESETS[outcome.preset] || PRESETS.airline).label}</span>
     </div>${hint}${rows}`;
 
   const useHint = boardEl.querySelector('[data-action="use"]');
@@ -402,10 +466,24 @@ function readHash() {
   if (aircraft) controls.aircraft.value = aircraft;
   const when = params.get("when");
   if (when) controls.when.value = when;
+  const preset = params.get("preset");
+  if (preset && PRESETS[preset]) controls.preset.value = preset;
+  const fleetParam = params.get("fleet");
+  if (fleetParam) {
+    const codes = fleetParam.split(",").filter((code) => planner.aircraftByIcao.has(code));
+    if (codes.length) {
+      fleet = codes;
+      updateFleetLabel();
+    }
+  }
   const at = params.get("at");
   if (at) {
     const parsed = new Date(at);
     if (!Number.isNaN(parsed.getTime())) suggestion = parsed;
+  }
+  if (params.get("pick") === "1") {
+    buildFleetOptions();
+    controls.fleetDialog.showModal();
   }
 }
 
@@ -413,8 +491,9 @@ function writeHash(query) {
   const params = new URLSearchParams();
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
-  params.set("aircraft", query.aircraft);
+  params.set("preset", query.preset);
   params.set("block", String(query.blockMinutes));
+  if (fleet.length && fleet.length <= 12) params.set("fleet", fleet.join(","));
   if (suggestion) params.set("at", `${suggestion.toISOString().slice(0, 16)}Z`);
   const next = params.toString();
   try {
@@ -431,6 +510,8 @@ async function boot() {
     const bundle = await loadBundle();
     planner = createPlanner(bundle);
     populateSelects();
+    fleet = loadFleet();
+    updateFleetLabel();
     controls.when.value = "now";
     readHash();
     updateStatus();
@@ -446,9 +527,18 @@ async function boot() {
     suggestionInfo = null;
     recompute();
   });
-  for (const key of ["block", "from", "to", "aircraft", "atc", "duration", "popularity"]) {
+  for (const key of ["block", "from", "to", "preset", "atc", "duration", "popularity"]) {
     controls[key].addEventListener("input", recompute);
   }
+  controls.fleetButton.addEventListener("click", openFleet);
+  controls.fleetApply.addEventListener("click", applyFleet);
+  controls.fleetCancel.addEventListener("click", () => controls.fleetDialog.close());
+  controls.fleetSearch.addEventListener("input", () => {
+    const needle = controls.fleetSearch.value.trim().toLowerCase();
+    for (const item of controls.fleetList.querySelectorAll(".fleet-item")) {
+      item.style.display = !needle || item.dataset.search.includes(needle) ? "" : "none";
+    }
+  });
   controls.refresh.addEventListener("click", () => {
     refreshLive();
     recompute();

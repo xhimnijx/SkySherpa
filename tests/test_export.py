@@ -147,6 +147,15 @@ def test_airports_carry_expected_metadata(bundle) -> None:
     assert heathrow["traffic"] > 0
 
 
+def test_airports_declare_the_layers_they_ever_staff(bundle) -> None:
+    out, _ = bundle
+    airports = json.loads((out / "data" / "airports.json").read_text(encoding="utf-8"))
+    assert airports
+    for airport in airports:
+        assert isinstance(airport["stack"], int)
+        assert 0 <= airport["stack"] <= 0b1111
+
+
 def test_pairs_reference_known_airports(bundle) -> None:
     out, _ = bundle
     airports = {item["icao"] for item in json.loads((out / "data" / "airports.json").read_text())}

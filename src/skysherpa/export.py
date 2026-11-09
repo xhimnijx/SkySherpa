@@ -289,6 +289,13 @@ def build_bundle(
             ground = _union(_combine(by_airport[icao]["GND"]), tower)
             delivery = _union(_combine(by_airport[icao]["DEL"]), ground)
             airport_layers[icao] = [delivery, ground, tower, approach]
+            # Which layers this airport has ever been seen to staff, as a bitmask.
+            # Presets that renormalise (GA) use it to stop penalising a grass strip for
+            # not having a delivery position it never had.
+            stack = 0
+            for index, layer in enumerate(airport_layers[icao]):
+                if max(layer) >= 50:  # ~20% at some point in the week
+                    stack |= 1 << index
             airports.append(
                 {
                     "icao": icao,
@@ -298,6 +305,7 @@ def build_bundle(
                     "iata": airport.iata,
                     "fir": airport.fir,
                     "traffic": traffic.get(icao, 0),
+                    "stack": stack,
                 }
             )
 

@@ -23,16 +23,20 @@ const bundle = {
 
 const planner = createPlanner(bundle);
 const hourArg = process.argv.find((item) => item.startsWith("--hour="));
+const presetArg = process.argv.find((item) => item.startsWith("--preset="));
+const fleetArg = process.argv.find((item) => item.startsWith("--fleet="));
 let departAt = new Date(Date.now() + 10 * 60000);
 if (hourArg) {
   departAt = new Date();
   departAt.setUTCHours(Number(hourArg.split("=")[1]), 0, 0, 0);
 }
+const fleet = fleetArg ? fleetArg.split("=")[1].split(",") : ["A20N", "B738", "DH8D"];
 const outcome = planner.plan({
   departAt,
   blockMinutes: 150,
   tolerance: 45,
-  aircraft: "A20N",
+  aircraft: fleet,
+  preset: presetArg ? presetArg.split("=")[1] : "airline",
   limit: 8,
 });
 
@@ -61,6 +65,7 @@ const summary = {
   block_times: blockTimes,
   top: outcome.results.map((result) => ({
     route: `${result.dep}-${result.arr}`,
+    aircraft: result.aircraft,
     block_min: result.block,
     distance_nm: result.distance,
     atc_pct: Number((result.atc * 100).toFixed(1)),
@@ -74,7 +79,7 @@ if (process.argv.includes("--table")) {
   console.log(`matched ${summary.matched}/${summary.evaluated} in ${summary.elapsed_ms} ms`);
   for (const row of summary.top) {
     console.log(
-      `${row.route.padEnd(11)} ${String(row.block_min).padStart(4)}m ` +
+      `${row.route.padEnd(11)} ${row.aircraft.padEnd(5)} ${String(row.block_min).padStart(4)}m ` +
         `${row.atc_pct.toFixed(1).padStart(5)}% atc  ${row.why}`,
     );
   }
