@@ -1,0 +1,1 @@
+{"version":1,"generated_at":"2026-11-09T22:52:43.342052+00:00","hours_per_week":168,"grid":{"resolution":1.0,"width":360,"height":180},"fir_count":485,"airport_count":622,"pair_count":1080,"layers":["del","gnd","twr","app"],"airport_layer_bytes":672,"positions_modelled":67,"days_observed":1,"half_life_days":56.0,"calibration":{"applied":false,"knots":0},"source":"skysherpa"}

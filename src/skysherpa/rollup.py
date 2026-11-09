@@ -131,14 +131,20 @@ def rebuild_slots(db: Database, *, window_days: int = DEFAULT_WINDOW_DAYS) -> in
 
 
 def rebuild_pairs(db: Database, reference: StaticReference | None = None) -> int:
-    """Rebuild per-city-pair statistics from completed flights."""
+    """Rebuild per-city-pair statistics from *filed intent*, not just completed flights.
+
+    A fresh install has thousands of aircraft in the air and almost no completed flights
+    yet. Filtering on ``block_min`` here meant the website had no candidate routes at all
+    for the first several hours -- a cold start that looked like a bug. Every observed
+    flight with a filed origin and destination counts; the median block time is simply
+    unknown until some of them land.
+    """
     rows = db.query(
         """
         SELECT dep_icao, arr_icao, COUNT(*) AS n, AVG(block_min) AS avg_block,
                MAX(last_seen) AS last_seen
         FROM flight
-        WHERE block_min IS NOT NULL AND dep_icao <> '' AND arr_icao <> ''
-              AND dep_icao <> arr_icao
+        WHERE dep_icao <> '' AND arr_icao <> '' AND dep_icao <> arr_icao
         GROUP BY dep_icao, arr_icao
         """
     )

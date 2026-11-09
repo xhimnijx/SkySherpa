@@ -446,9 +446,14 @@ function updateStatus() {
   const minutes = Math.max(0, Math.round((Date.now() - generated.getTime()) / 60000));
   const age = minutes < 90 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
   const liveText = live ? ` · live: ${live.controllers} ATC / ${live.pilots} pilots` : "";
+  const days = meta.days_observed;
+  const daysText = days === 1 ? "1 day" : `${days} days`;
+  // Under two weeks of history the forecast is mostly the prior. Saying so is the
+  // difference between a product that is trusted later and one that is impressive once.
+  const caution = days < 14 ? ` · early days: thin history, treat as a rough guess` : "";
   statusEl.textContent =
-    `forecast ${age} old · ${meta.days_observed} days observed · ` +
-    `${meta.positions_modelled} positions${liveText}`;
+    `forecast ${age} old · ${daysText} observed · ` +
+    `${meta.positions_modelled} positions${liveText}${caution}`;
 }
 
 // ---- permalinks ------------------------------------------------------------
