@@ -106,6 +106,9 @@ python -m http.server 8099 --directory dist
 # any time: is the history deep enough to trust the forecast yet?
 .\scripts\dev.ps1 status
 
+# check that a published bundle is internally coherent (publish does this too)
+.\scripts\dev.ps1 verify
+
 # monthly, or whenever: keep the database laptop-sized
 .\scripts\dev.ps1 prune --keep-days 45
 ```

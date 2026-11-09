@@ -845,6 +845,19 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
         database.close()
 
     print(result.summary())
+
+    # A bundle that does not add up is worse than no bundle: the site will load most of it
+    # and fail somewhere unhelpful. Check it here while the operator is still watching.
+    from .verify import verify_bundle
+
+    problems = verify_bundle(out)
+    if problems:
+        print("", file=sys.stderr)
+        print(f"bundle is incoherent ({len(problems)} problem(s)):", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+
     print("")
     print(f"  serve:  python -m http.server 8080 --directory {out}")
     print(f"  open:   http://127.0.0.1:8080/")
@@ -1003,6 +1016,21 @@ def cmd_prune(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    from .verify import verify_bundle
+
+    settings = _settings(args)
+    out = Path(args.out) if args.out else settings.root / "dist"
+    problems = verify_bundle(out)
+    if problems:
+        print(f"{len(problems)} problem(s) in {out}:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    print(f"{out}: bundle is coherent")
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -1106,6 +1134,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_prune.add_argument("--keep-days", type=int, default=45)
     p_prune.add_argument("--dry-run", action="store_true")
     p_prune.set_defaults(func=cmd_prune)
+
+    p_verify = sub.add_parser(
+        "verify", parents=[common], help="check that a published bundle is internally coherent"
+    )
+    p_verify.add_argument("--out", help="bundle directory (default: dist)")
+    p_verify.set_defaults(func=cmd_verify)
 
     p_rollup = sub.add_parser(
         "rollup", parents=[common], help="rebuild presence and route aggregates"
