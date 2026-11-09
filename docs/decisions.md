@@ -176,3 +176,48 @@ property-tested for monotonicity and carry a documented ±10% tolerance.
 **Revisit if.** A reliable cross-platform scanner emerges — but it would only ever supply
 the variant layer, never the performance layer.
 
+---
+
+## ADR-0009 — The product is a static site; browsers plan, the collector publishes
+
+**Status:** accepted (2026-11-10)
+
+**Decision.** SkySherpa ships as a static website with no server in the request path. A
+nightly `skysherpa publish` writes a bundle — per-FIR and per-airport probabilities for the
+168 hours of the week (one byte each), simplified airspace polygons, a 1° lookup grid, the
+observed route corpus, and the aircraft catalogue, about 600 KB in total. The browser loads
+it and does all planning locally in JavaScript. Live network state is fetched straight from
+`data.vatsim.net`, which serves `access-control-allow-origin: *`.
+
+**Why.** Three reasons, in order of importance.
+
+1. **The expensive part is not the query.** Planning is arithmetic on a small grid: a
+   worldwide scan of the route corpus takes about 1.5 ms. Putting that behind an HTTP round
+   trip adds latency and a server to pay for, in exchange for nothing.
+2. **It makes the product shareable.** A static site on a CDN serves unlimited visitors for
+   free. A laptop-run API serves one, badly.
+3. **Privacy by construction.** The visitor's fleet, installed airports, and preferences
+   never leave their machine, because there is nowhere to send them.
+
+The model itself cannot run in the browser — it needs eight weeks of history — but its
+*output* can, and that is the whole trick. The browser never fits anything; it reads a
+probability and multiplies.
+
+**What does not move.** Observation. Something must poll the network 24/7 and something must
+refit the model; that is one small always-on process (this laptop, a Raspberry Pi, or a €4
+VPS), and it is the only server-shaped thing left. If the publisher stops, the site keeps
+working with a visible forecast age, which is the correct failure mode.
+
+**Rejected.** Pyodide/PyScript (10 MB+ download, multi-second cold start, to run a model
+that could be a 600 KB table); a FastAPI backend (cost, ops, latency, and a reason for users
+to send us personal data); server-side rendering of results (kills the live parameter
+tuning that makes the idea feel good).
+
+**Consequences.** The planning maths now exists twice (Python and JavaScript), so a parity
+test compares block-time estimates on every run and `core.js` is forbidden from touching the
+DOM. Boundaries are simplified for the map, so the drawn airspace is schematic rather than
+authoritative. Forecast staleness is surfaced in the header rather than hidden.
+
+**Revisit if.** Sector-level answers become necessary (the bundle grows), or the corpus needs
+to be queried in ways that cannot fit in a few megabytes.
+

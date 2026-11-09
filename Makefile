@@ -20,6 +20,17 @@ doctor:
 sniff:
 	PYTHONPATH=src python -m skysherpa sniff --coverage
 
+publish:
+	PYTHONPATH=src python -m skysherpa publish --out dist
+
+site:
+	python -m http.server 8099 --directory dist
+
+demo-site:
+	PYTHONPATH=src python -m skysherpa simulate --data-dir data/sim --days 56 --force
+	PYTHONPATH=src python -m skysherpa publish --data-dir data/sim --out dist
+	python -m http.server 8099 --directory dist
+
 lint:
 	python -m ruff check src tests
 

@@ -557,11 +557,15 @@ Candidate generation, utility, search, Monte Carlo, Pareto, explanations, `plan`
 JSON API skeleton.
 **Gate:** §12.2 targets; `plan` p95 ≤ 3 s; every result explains itself.
 
-### P4 — Surface (≈ 1 week)
+### P4 — Surface (≈ 1 week) — *started early, see ADR-0009*
 `serve` + map UI: coverage ribbon on the route, staffing heat calendar, plan board, shareable
 permalink, live "traffic vs. staffing" view.
 **Gate:** page interactive < 1.5 s locally; works in Firefox and Chrome; no JS build step required
 for a usable fallback.
+
+**Shipped early:** the board and the airspace choropleth now run as a static site with all
+planning in the browser (`skysherpa publish`). Remaining for P4: permalinks, a staffing heat
+calendar, and the route ribbon that shows coverage per phase rather than per FIR.
 
 ### P5 — Personal (≈ 1 week)
 Profile, fleet, installed airports, presets, pairwise learning, debrief, VATSIM Connect logbook

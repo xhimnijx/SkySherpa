@@ -223,6 +223,11 @@ class StaticReference:
 
     # ---- lookup --------------------------------------------------------
 
+    @property
+    def boundaries(self) -> list[Boundary]:
+        """Every polygon the reference knows about, in file order."""
+        return self._boundaries
+
     def boundary_at(self, lat: float, lon: float) -> Boundary | None:
         """The most specific polygon containing a coordinate."""
         candidates = [

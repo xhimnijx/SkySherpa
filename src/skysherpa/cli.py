@@ -20,6 +20,7 @@ from . import __version__, doctor
 from .aircraft import CLASSES, ENGINES, SIMS, AircraftCatalog, load_catalog
 from .callsign import parse as parse_callsign
 from .config import Settings
+from .export import build_bundle
 from .feed import FeedError, Snapshot, fetch_snapshot
 from .fleet import Fleet
 from .ingest import run_ingest
@@ -798,6 +799,43 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+# ------------------------------------------------------------------- publishing
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    try:
+        database = _open_db(settings)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    reference = None
+    try:
+        reference = load_reference(settings)
+    except RuntimeError as exc:
+        print(f"warning: no static reference ({exc}); airports and map will be empty", file=sys.stderr)
+
+    out = Path(args.out) if args.out else settings.root / "dist"
+    try:
+        result = build_bundle(
+            database,
+            out_dir=out,
+            reference=reference,
+            max_pairs=args.max_pairs,
+            write_web_assets=not args.no_assets,
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(result.summary())
+    print("")
+    print(f"  serve:  python -m http.server 8080 --directory {out}")
+    print(f"  open:   http://127.0.0.1:8080/")
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -911,6 +949,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_bt.add_argument("--bins", action="store_true", help="print the reliability diagram")
     p_bt.add_argument("--json", action="store_true")
     p_bt.set_defaults(func=cmd_backtest)
+
+    p_pub = sub.add_parser(
+        "publish", parents=[common], help="build the static web bundle (forecast + geometry)"
+    )
+    p_pub.add_argument("--out", help="output directory (default: ./dist)")
+    p_pub.add_argument("--max-pairs", type=int, default=20_000)
+    p_pub.add_argument("--no-assets", action="store_true", help="skip copying web/ into dist")
+    p_pub.set_defaults(func=cmd_publish)
 
     sub.add_parser("version", parents=[common], help="print version").set_defaults(
         func=cmd_version

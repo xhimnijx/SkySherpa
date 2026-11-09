@@ -29,6 +29,7 @@ That is the whole product.
 
 | Surface | Command | What you get |
 | --- | --- | --- |
+| **The site** | `skysherpa publish` + any static host | The board: best flights right now, recomputed in your browser as you move the sliders |
 | **Decide now** | `skysherpa plan --from EGLL --max-block 3h` | Ranked flights that fit your time, with expected ATC-minutes and coverage risk |
 | **Decide later** | `skysherpa best-time --from EGLL --to LEPA --next 5d` | The 90-minute departure window that maximises your evening, with a confidence ribbon |
 | **Decide broadly** | `skysherpa plan --aircraft B738 --block 2h --anywhere` | The Pareto front across your installed airports, not a single answer |
@@ -39,6 +40,32 @@ That is the whole product.
 Every recommendation carries its own receipts: predicted coverage along the route, the handoffs
 you should expect, the longest stretch of unicom, arrival congestion, weather, and the
 counterfactuals ("leave 90 minutes later → +38 expected ATC minutes, −12% arrival queue").
+
+## The site
+
+The dispatcher is a static website. The forecasting model runs once, nightly, and ships its
+output as a ~600 KB bundle; the browser does the planning — a worldwide scan of the route
+corpus takes about 1.5 ms, so every slider move re-plans instantly. Live traffic is read
+directly from VATSIM (their feed sends `access-control-allow-origin: *`). There is no server
+in the request path, which is why this can be given to other people.
+
+```powershell
+# demo against a synthetic network (no history needed)
+.\scripts\dev.ps1 simulate --data-dir data/sim --days 56 --force
+.\scripts\dev.ps1 publish  --data-dir data/sim --out dist
+
+# or publish your real collected history
+.\scripts\dev.ps1 publish --out dist
+
+python -m http.server 8099 --directory dist
+# open http://127.0.0.1:8099/
+```
+
+What you get: a board ranked by expected ATC coverage for the time you actually fly, a
+canvas choropleth of where controllers are likely to be, and sliders for departure time,
+flight length, airports, aircraft, and what matters to you. All of it recalculates locally.
+
+See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
 ## Status
 
