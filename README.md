@@ -65,8 +65,9 @@ What you get: a board ranked by expected ATC coverage for the time you actually 
 the depth of history behind each number (56d, or "prior" when there is none), a canvas
 choropleth of where controllers are likely to be, a ribbon showing coverage along the
 selected route (including the airspace boundaries you will cross), and controls for
-departure time, flight length, airports, your fleet, and a style preset (airline ops, GA,
-or maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
+departure time — including any date and time you like, since the forecast is a weekly
+template — flight length, airports, your fleet, and a style preset (airline ops, GA, or
+maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
 and the terminal score knows the difference between a delivery clearance and an approach
 clearance. All of it recalculates locally.
 

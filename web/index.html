@@ -29,7 +29,10 @@
             <option value="1h">in about an hour</option>
             <option value="3h">in three hours</option>
             <option value="evening">this evening (19:00Z)</option>
+            <option value="pick">pick a date and time…</option>
           </select>
+          <input id="whenPick" class="when-pick" type="datetime-local" step="900" hidden />
+          <span id="whenHint" class="when-hint" hidden>your local time; the board shows Z</span>
         </div>
 
         <div class="group">

@@ -19,6 +19,8 @@ const ribbonCaption = document.getElementById("ribbonCaption");
 
 const controls = {
   when: document.getElementById("when"),
+  whenPick: document.getElementById("whenPick"),
+  whenHint: document.getElementById("whenHint"),
   block: document.getElementById("block"),
   blockOut: document.getElementById("blockOut"),
   from: document.getElementById("from"),
@@ -593,26 +595,32 @@ function drawRibbon(result) {
     `worst stretch ${Math.round(worst * 100)}% ATC · ${airspaces} airspace${airspaces === 1 ? "" : "s"}`;
 }
 
-// Keep the Departure control honest: while a preview window is active it should say so.
+// Keep the Departure control honest: while an explicit time is active the picker should
+// show it, because the forecast is a weekly template and any moment is answerable.
+function localInputValue(moment) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return (
+    `${moment.getFullYear()}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())}` +
+    `T${pad(moment.getHours())}:${pad(moment.getMinutes())}`
+  );
+}
+
+function parseWhenPick() {
+  const raw = controls.whenPick.value;
+  if (!raw) return null;
+  const parsed = new Date(raw); // datetime-local is interpreted in local time
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function syncWhenSelect() {
-  const existing = controls.when.querySelector('option[value="at"]');
+  controls.whenPick.hidden = !suggestion;
+  controls.whenHint.hidden = !suggestion;
   if (suggestion) {
-    if (existing) {
-      existing.textContent = `preview ${formatZ(suggestion)}`;
-    } else {
-      const option = document.createElement("option");
-      option.value = "at";
-      option.textContent = `preview ${formatZ(suggestion)}`;
-      controls.when.appendChild(option);
-    }
-    controls.when.value = "at";
+    controls.whenPick.value = localInputValue(new Date(suggestion));
+    controls.when.value = "pick";
     return;
   }
-  if (existing) {
-    const wasPreview = controls.when.value === "at";
-    existing.remove();
-    if (wasPreview) controls.when.value = "now";
-  }
+  if (controls.when.value === "pick") controls.when.value = "now";
 }
 
 function renderBoard(outcome, query) {
@@ -853,7 +861,12 @@ function updateStatus() {
   const minutes = Math.max(0, Math.round((Date.now() - generated.getTime()) / 60000));
   const age = minutes < 90 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
   const liveText = live ? ` · live: ${live.controllers} ATC / ${live.pilots} pilots` : "";
-  const anchored = planner.hasLive && planner.hasLive() ? " · live staffing blended" : "";
+  // Only claim the live blend when it actually reaches this departure: it decays to nothing
+  // beyond two hours, so a plan for next Thursday must not look anchored to right now.
+  const departure = departureTime();
+  const nearEnough = Math.abs(departure.getTime() - Date.now()) < 2 * 3600 * 1000;
+  const anchored =
+    planner.hasLive && planner.hasLive() && nearEnough ? " · live staffing blended" : "";
   const days = meta.days_observed;
   const daysText = days === 1 ? "1 day" : `${days} days`;
   // Under two weeks of history the forecast is mostly the prior. Saying so is the
@@ -976,7 +989,22 @@ async function boot() {
   }
 
   controls.when.addEventListener("input", () => {
-    suggestion = null;
+    if (controls.when.value === "pick") {
+      if (!controls.whenPick.value) {
+        controls.whenPick.value = localInputValue(new Date(Date.now() + 3600000));
+      }
+      suggestion = parseWhenPick() || suggestion;
+      controls.whenPick.focus();
+    } else {
+      suggestion = null;
+    }
+    suggestionInfo = null;
+    recompute();
+  });
+  controls.whenPick.addEventListener("change", () => {
+    const parsed = parseWhenPick();
+    if (!parsed) return;
+    suggestion = parsed;
     suggestionInfo = null;
     recompute();
   });
