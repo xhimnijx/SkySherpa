@@ -49,6 +49,9 @@ counterfactuals ("leave 90 minutes later → +38 expected ATC minutes, −12% ar
 .\scripts\dev.ps1 sniff      # live network read-out: traffic, staffing, coverage
 .\scripts\dev.ps1 aircraft   # 159 aircraft types and 195 add-on variants
 .\scripts\dev.ps1 fleet --add A320 --variant fenix-a320
+
+.\scripts\dev.ps1 ingest --once   # take one real poll into the database
+.\scripts\dev.ps1 db              # what has been observed so far
 ```
 
 `doctor` is the thing you actually need for a 24/7 box: it distinguishes "VATSIM is down" from

@@ -156,10 +156,10 @@ def _perpendicular_nm(point: Point, start: Point, end: Point, lat0: float) -> fl
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
-def simplify_rdp(points: Sequence[Point], tolerance_nm: float) -> list[Point]:
-    """Ramer-Douglas-Peucker simplification. Preserves endpoints."""
+def rdp_keep_indices(points: Sequence[Point], tolerance_nm: float) -> list[int]:
+    """Indices retained by Ramer-Douglas-Peucker. Preserves first and last."""
     if tolerance_nm <= 0 or len(points) < 3:
-        return list(points)
+        return list(range(len(points)))
     lat0 = sum(p[0] for p in points) / len(points)
     keep = [False] * len(points)
     keep[0] = keep[-1] = True
@@ -180,4 +180,9 @@ def simplify_rdp(points: Sequence[Point], tolerance_nm: float) -> list[Point]:
             stack.append((first, worst_index))
             stack.append((worst_index, last))
 
-    return [p for p, k in zip(points, keep) if k]
+    return [i for i, k in enumerate(keep) if k]
+
+
+def simplify_rdp(points: Sequence[Point], tolerance_nm: float) -> list[Point]:
+    """Ramer-Douglas-Peucker simplification. Preserves endpoints."""
+    return [points[i] for i in rdp_keep_indices(points, tolerance_nm)]

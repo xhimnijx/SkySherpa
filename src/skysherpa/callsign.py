@@ -155,6 +155,10 @@ def parse(
 
     if facility_code is not None:
         facility = FACILITY_BY_CODE.get(facility_code, FacilityType.UNKNOWN)
+        # The feed reports ATIS positions with facility 4 (tower). The suffix is the
+        # only thing that distinguishes them, so it wins here.
+        if suffix_facility is FacilityType.ATIS:
+            facility = FacilityType.ATIS
     else:
         facility = suffix_facility or FacilityType.UNKNOWN
 

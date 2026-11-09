@@ -651,17 +651,21 @@ rating tool; anything that automates flying; anything that needs a cloud account
 
 ## 18. Immediate next actions (P1, in order)
 
-1. `store.py` + `schema.sql` wired: migrations, WAL, single-writer guard, retention.
-2. `ingest.py`: the poll loop with the §8.1 state machine, gap ledger, restart resume.
-3. `sessionize.py`: controller/ATIS session intervals from consecutive snapshots; reconnect merge.
-4. `flights.py`: flight lifecycle + trajectory simplification + block-time derivation.
-5. `staticdata.py` in production mode: weekly refresh, checksum pinning, offline fallback.
-6. `fir.py`: point-in-FIR with a bounding-box index (currently brute-force in the P0 slice).
-7. `simulate.py`: synthetic network generator + fixtures for CI.
-8. `oracle/` package skeleton with the presence-matrix builder and a placeholder model, so the
-   backtest harness can be written before the real model lands.
-9. `skysherpa up`: supervisor running ingest + oracle + serve with structured logs and `/healthz`.
-10. Deploy *this week* on the target laptop so the clock starts on real history.
+**Done:** store + schema application, the ingest loop, sessionisation with reconnect
+merging, flight lifecycle + RDP trajectory simplification, crash-safe reopen, and the gap
+ledger. The collector is running.
+
+Remaining:
+
+1. `simulate.py`: a synthetic network generator, so P2/P3 can be built and CI-tested
+   before real history accrues (the calendar problem, §13.1).
+2. Hourly rollup: sessions → `position_slot`, flights → `airport_hourly`/`pair_stat`.
+3. `oracle/` package skeleton: presence-matrix builder + backtest harness, before the
+   real model lands.
+4. `skysherpa up`: supervisor (ingest + oracle + serve) with `/healthz` and structured logs.
+5. `staticdata`: checksum pinning and an offline fallback path.
+6. Deploy on the target laptop so the clock runs — already started; treat any restart as
+   a data-loss event and check `skysherpa db` for gaps.
 
 ---
 

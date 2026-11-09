@@ -99,12 +99,16 @@ CREATE TABLE IF NOT EXISTS controller_session (
     server         TEXT,
     started_at     TEXT NOT NULL,
     ended_at       TEXT NOT NULL,
+    duration_s     INTEGER NOT NULL DEFAULT 0,
     n_samples      INTEGER NOT NULL,
     is_observer    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_session_position_time
     ON controller_session(position_key, started_at);
 CREATE INDEX IF NOT EXISTS idx_session_started ON controller_session(started_at);
+-- Reconnect merging looks up the most recent session for a callsign.
+CREATE INDEX IF NOT EXISTS idx_session_callsign
+    ON controller_session(callsign, ended_at);
 
 -- The training matrix for the coverage model. One row per position/day/slot that we
 -- actually observed; missing rows are unknown, not offline.

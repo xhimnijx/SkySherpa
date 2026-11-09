@@ -20,8 +20,10 @@ from .callsign import parse as parse_callsign
 from .config import Settings
 from .feed import FeedError, Snapshot, fetch_snapshot
 from .fleet import Fleet
+from .ingest import run_ingest
 from .routes import parse_route
 from .staticdata import StaticReference, load_reference
+from .store import Database
 
 __all__ = ["main"]
 
@@ -513,6 +515,65 @@ def cmd_fleet(args: argparse.Namespace) -> int:
     return 0
 
 
+# ------------------------------------------------------------------- persistence
+
+
+def cmd_ingest(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    return run_ingest(
+        settings,
+        once=args.once,
+        minutes=args.minutes,
+        interval_s=args.interval,
+        quiet=args.quiet,
+        max_polls=args.max_polls,
+    )
+
+
+def cmd_db(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    database = Database(settings.data_dir / "skysherpa.sqlite3")
+    if not database.path.exists():
+        print(f"no database yet at {database.path}")
+        print("  create it with: skysherpa ingest --once")
+        return 1
+    database.initialize()
+    stats = database.stats()
+
+    if args.json:
+        payload = {
+            key: (value.isoformat() if hasattr(value, "isoformat") else value)
+            for key, value in stats.items()
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    size_mb = stats["bytes"] / 1_048_576
+    first = stats["first_poll"].strftime("%Y-%m-%dT%H:%MZ") if stats["first_poll"] else "-"
+    last = stats["last_poll"].strftime("%Y-%m-%dT%H:%MZ") if stats["last_poll"] else "-"
+    span = (
+        f"{stats['span_hours']:.1f} h"
+        if stats["span_hours"]
+        else ("single poll" if stats["snapshots"] else "empty")
+    )
+    print(f"database  {stats['path']}")
+    print(f"          {size_mb:.1f} MB | schema v{stats['schema_version']}")
+    print("")
+    print(f"  {'snapshots':<14}{stats['snapshots']:>9,}   {first} -> {last} ({span})")
+    print(f"  {'positions':<14}{stats['positions']:>9,}")
+    print(f"  {'sessions':<14}{stats['sessions']:>9,}   {stats['atc_hours']:.1f} h of ATC observed")
+    print(
+        f"  {'flights':<14}{stats['flights']:>9,}"
+        f"   mean block {stats['block_min_avg']:.0f} min"
+    )
+    print(f"  {'track points':<14}{stats['track_points']:>9,}")
+    print(f"  {'gaps':<14}{stats['gaps']:>9,}")
+    if stats["snapshots"] == 0:
+        print("")
+        print("  nothing collected yet: run `skysherpa ingest --once` to take a first poll")
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -577,6 +638,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_fleet.add_argument("--clear", action="store_true")
     p_fleet.add_argument("--json", action="store_true")
     p_fleet.set_defaults(func=cmd_fleet)
+
+    p_ingest = sub.add_parser(
+        "ingest", parents=[common], help="poll the live feed into the database"
+    )
+    p_ingest.add_argument("--once", action="store_true", help="one poll, then exit")
+    p_ingest.add_argument(
+        "--minutes", type=float, default=0.0, help="run for N minutes (0 = forever)"
+    )
+    p_ingest.add_argument("--interval", type=int, default=None, help="seconds between polls")
+    p_ingest.add_argument("--max-polls", type=int, default=None, help="stop after N polls")
+    p_ingest.add_argument("--quiet", action="store_true")
+    p_ingest.set_defaults(func=cmd_ingest)
+
+    p_db = sub.add_parser("db", parents=[common], help="database status")
+    p_db.add_argument("--json", action="store_true")
+    p_db.set_defaults(func=cmd_db)
 
     sub.add_parser("version", parents=[common], help="print version").set_defaults(
         func=cmd_version
