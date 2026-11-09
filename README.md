@@ -149,7 +149,23 @@ On a phone the board comes first, then the map, then the controls:
 
 ## Status
 
-**P0 — scaffold and plan.** What runs today, on stdlib only, no install:
+The dispatcher is built and runs on the standard library alone:
+
+| layer | what exists |
+| --- | --- |
+| observe | live polling, controller sessionisation, flight lifecycle with a 90-second grace |
+| forecast | hierarchical Beta-Binomial presence model, isotonic calibration, rolling-origin backtest |
+| dispatch | fleet-aware ranking, ATC service layers, time budgets, presets, explanations |
+| surface | static site: board, airspace map, route ribbon, watchlist, taste learning, live anchoring |
+| operate | `status`, `rehearse`, `prune`, `publish --watch`, `doctor` |
+
+**Verified from a clean clone** (2026-11-09): 76 tracked files, 292 offline tests green,
+a 56-day simulated history published as a 773 KB bundle, all four backtest gates passing
+(skill 0.543, calibration error 0.036, AUC 0.969, interval coverage 0.998), and the site
+planning eight routes against the live network in 0.1 ms.
+
+**What is not done:** the backtest on *real* data. It needs 35 days of collection and
+about one day is in; `skysherpa status` reports the remaining time every run.
 
 ```powershell
 .\scripts\dev.ps1 doctor     # health-check every upstream data source, with invariants
@@ -172,7 +188,8 @@ and a name without range and runway numbers cannot rule out an impossible flight
 carries the numbers a dispatcher needs; each product variant (Fenix A320, Asobo A320neo,
 FlyByWire A32NX) is a separate selectable entry — see [ADR-0008](docs/decisions.md).
 
-Everything else is specified in **[PLAN.md](PLAN.md)** and built in phases.
+Everything else is specified in **[PLAN.md](PLAN.md)**, whose opening section records where
+the built product deviates from the original plan.
 
 ## Quickstart
 
