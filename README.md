@@ -80,6 +80,12 @@ site raises a toast (and a desktop notification, if you allow it) with a "Show m
 Alerts fire while the tab is open — a static site cannot push without a server, and adding
 one would undo the reason this is a static site.
 
+Live staffing is blended into the forecast as well: the browser reads the current network
+feed, maps each online controller to the airspace it serves, and pulls the near-term
+probability toward certainty with a two-hour decay. The historical model answers "who is
+usually online on a Tuesday evening"; the feed answers "who is online now", and for a flight
+leaving in ten minutes the second one wins.
+
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
 ## Running it for real

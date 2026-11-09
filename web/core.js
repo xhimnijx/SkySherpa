@@ -220,7 +220,18 @@ export function estimateBlockMinutes(aircraft, distanceNm, options = {}) {
 }
 
 export function createPlanner(bundle) {
-  const { meta, firs, firCtr, firFss, firGrid, airports, airportLayers, pairs, aircraft } = bundle;
+  const {
+    meta,
+    firs,
+    firCtr,
+    firFss,
+    firGrid,
+    airports,
+    airportLayers,
+    positions,
+    pairs,
+    aircraft,
+  } = bundle;
   const width = meta.grid.width;
   const height = meta.grid.height;
   const resolution = meta.grid.resolution;
@@ -229,6 +240,58 @@ export function createPlanner(bundle) {
   const airportSlot = new Map(airports.map((a, i) => [a.icao, i]));
   const aircraftByIcao = new Map(aircraft.map((a) => [a.icao, a]));
   const firCodeOf = (index) => (index > 0 && index <= firs.length ? firs[index - 1].code : "");
+  const firSlot = new Map(firs.map((entry, index) => [entry.code, index + 1]));
+
+  // Live anchoring. The historical model answers "who is usually online"; the feed
+  // answers "who is online right now". For a departure in the next hour the second is
+  // strictly better, so it is blended in with a two-hour decay: certainty at the moment
+  // of the snapshot, nothing by the time the flight is well clear of it.
+  const positionByKey = new Map();
+  const positionByStem = new Map();
+  for (const entry of positions || []) {
+    positionByKey.set(entry.k, entry);
+    const stem = entry.k.replace(/_[A-Z]{2,4}$/, "");
+    if (stem && !positionByStem.has(stem)) positionByStem.set(stem, entry);
+  }
+  const LIVE_LAYER_MASK = { DEL: 0b0001, GND: 0b0011, TWR: 0b0111, APP: 0b1111, CTR: 0b1111, FSS: 0 };
+  const FACILITY_BY_CODE = { 1: "FSS", 2: "DEL", 3: "GND", 4: "TWR", 5: "APP", 6: "CTR" };
+  let liveState = null;
+
+  function setLive(payload) {
+    if (!payload || !Array.isArray(payload.positions)) {
+      liveState = null;
+      return;
+    }
+    const at = payload.at instanceof Date ? payload.at : new Date(payload.at);
+    const staffedFirs = new Set();
+    const staffedAirports = new Map();
+    for (const item of payload.positions) {
+      const name = String(item.key || "").toUpperCase();
+      if (!name) continue;
+      const record = positionByKey.get(name) || positionByStem.get(name.replace(/_[A-Z]{2,4}$/, ""));
+      if (!record) continue;
+      const facility = FACILITY_BY_CODE[item.facility] || record.t;
+      // A live centre working top-down anchors every terminal layer beneath it too.
+      if (facility === "CTR" && record.f) {
+        const index = firSlot.get(record.f) || firSlot.get(record.f.split("-")[0]);
+        if (index) staffedFirs.add(index);
+      }
+      const mask = LIVE_LAYER_MASK[facility] || 0;
+      if (record.a && mask) staffedAirports.set(record.a, (staffedAirports.get(record.a) || 0) | mask);
+    }
+    liveState = { at: Number.isFinite(at.getTime()) ? at : new Date(), firs: staffedFirs, airports: staffedAirports };
+  }
+
+  function liveWeight(when) {
+    if (!liveState || !when) return 0;
+    const minutes = Math.abs(when.getTime() - liveState.at.getTime()) / 60000;
+    if (minutes >= 120) return 0;
+    return 1 - minutes / 120;
+  }
+
+  function applyLive(base, target, weight) {
+    return weight > 0 ? base + (target - base) * weight : base;
+  }
 
   function firIndexAt(lat, lon) {
     const x = Math.floor((lon + 180) / resolution);
@@ -247,25 +310,36 @@ export function createPlanner(bundle) {
     return firFss[(index - 1) * HOURS_PER_WEEK + hour] / 255;
   }
 
-  function firProbability(index, hour) {
+  function firProbability(index, hour, when = null) {
     const control = firCtrProbability(index, hour);
     const service = firFssProbability(index, hour);
-    return control + FSS_VALUE * service * (1 - control);
+    const base = control + FSS_VALUE * service * (1 - control);
+    if (when && liveState && liveState.firs.has(index)) {
+      return applyLive(base, 0.95, liveWeight(when));
+    }
+    return base;
   }
 
-  function airportLayer(icao, layerIndex, hour) {
+  function airportLayer(icao, layerIndex, hour, when = null) {
     const slot = airportSlot.get(icao);
     if (slot === undefined) return 0;
     const offset = (slot * LAYERS.length + layerIndex) * HOURS_PER_WEEK + hour;
-    return airportLayers[offset] / 255;
+    const base = airportLayers[offset] / 255;
+    if (when && liveState) {
+      const mask = liveState.airports.get(icao) || 0;
+      if (mask & (1 << layerIndex)) {
+        return applyLive(base, 0.95, liveWeight(when));
+      }
+    }
+    return base;
   }
 
-  function layersAt(icao, hour) {
+  function layersAt(icao, hour, when = null) {
     return {
-      del: airportLayer(icao, 0, hour),
-      gnd: airportLayer(icao, 1, hour),
-      twr: airportLayer(icao, 2, hour),
-      app: airportLayer(icao, 3, hour),
+      del: airportLayer(icao, 0, hour, when),
+      gnd: airportLayer(icao, 1, hour, when),
+      twr: airportLayer(icao, 2, hour, when),
+      app: airportLayer(icao, 3, hour, when),
     };
   }
 
@@ -289,7 +363,7 @@ export function createPlanner(bundle) {
         fraction,
       );
       const moment = new Date(departAt.getTime() + block * 60000 * fraction);
-      const probability = firProbability(firIndexAt(point[0], point[1]), hourIndex(moment));
+      const probability = firProbability(firIndexAt(point[0], point[1]), hourIndex(moment), moment);
       enroute += probability;
       if (probability >= 0.5) covered += 1;
       if (probability < 0.25) {
@@ -301,8 +375,8 @@ export function createPlanner(bundle) {
     }
     enroute /= samples + 1;
     const arrivalMoment = new Date(departAt.getTime() + block * 60000);
-    const departureLayers = layersAt(departure.icao, hourIndex(departAt));
-    const arrivalLayers = layersAt(arrival.icao, hourIndex(arrivalMoment));
+    const departureLayers = layersAt(departure.icao, hourIndex(departAt), departAt);
+    const arrivalLayers = layersAt(arrival.icao, hourIndex(arrivalMoment), arrivalMoment);
     const departureP = layerScore(
       departureLayers,
       preset.departure,
@@ -493,7 +567,7 @@ export function createPlanner(bundle) {
           ? result.departureP
           : fraction >= 0.95
             ? result.arrivalP
-            : firProbability(firIndex, hourIndex(moment));
+            : firProbability(firIndex, hourIndex(moment), moment);
       samples.push({
         fraction,
         probability,
@@ -513,6 +587,8 @@ export function createPlanner(bundle) {
     plan,
     bestWindow,
     ribbon,
+    setLive,
+    hasLive: () => Boolean(liveState),
     routeProfile,
     firIndexAt,
     firProbability,

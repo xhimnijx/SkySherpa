@@ -811,14 +811,26 @@ async function refreshLive() {
       cache: "no-store",
     });
     const payload = await response.json();
-    const atc = (payload.controllers || []).filter((c) => c.facility > 0);
+    const controllers = payload.controllers || [];
+    const atc = controllers.filter((controller) => controller.facility >= 1);
     live = {
       controllers: atc.length,
       pilots: (payload.pilots || []).length,
       updated: payload.general?.update_timestamp,
     };
+    // Hand the live staffing to the planner: the forecast is now anchored to who is
+    // actually online, decaying over two hours.
+    planner.setLive({
+      at: new Date(payload.general?.update_timestamp ?? Date.now()),
+      positions: atc.map((controller) => ({
+        key: controller.callsign,
+        facility: controller.facility,
+      })),
+    });
+    recompute();
   } catch (error) {
     live = null;
+    if (planner) planner.setLive(null);
   }
   updateStatus();
 }
@@ -830,6 +842,7 @@ function updateStatus() {
   const minutes = Math.max(0, Math.round((Date.now() - generated.getTime()) / 60000));
   const age = minutes < 90 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
   const liveText = live ? ` · live: ${live.controllers} ATC / ${live.pilots} pilots` : "";
+  const anchored = planner.hasLive && planner.hasLive() ? " · live staffing blended" : "";
   const days = meta.days_observed;
   const daysText = days === 1 ? "1 day" : `${days} days`;
   // Under two weeks of history the forecast is mostly the prior. Saying so is the
@@ -837,7 +850,7 @@ function updateStatus() {
   const caution = days < 14 ? ` · early days: thin history, treat as a rough guess` : "";
   statusEl.textContent =
     `forecast ${age} old · ${daysText} observed · ` +
-    `${meta.positions_modelled} positions${liveText}${caution}`;
+    `${meta.positions_modelled} positions${liveText}${anchored}${caution}`;
 }
 
 // ---- permalinks ------------------------------------------------------------

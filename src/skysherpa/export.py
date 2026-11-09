@@ -432,6 +432,20 @@ def build_bundle(
     write_json("pairs.json", pairs)
     write_json("aircraft.json", aircraft)
     write_json("polygons.json", polygons)
+    # Position index: lets the browser map a live controller callsign to the FIR or
+    # airport it serves, so the forecast can be anchored to who is online right now.
+    write_json(
+        "positions.json",
+        [
+            {
+                "k": key,
+                "f": position_fir.get(key, ""),
+                "a": position_airport.get(key, ""),
+                "t": facility_of.get(key, ""),
+            }
+            for key in sorted(facility_of)
+        ],
+    )
 
     if write_web_assets:
         web_dir = Path(__file__).resolve().parents[2] / "web"

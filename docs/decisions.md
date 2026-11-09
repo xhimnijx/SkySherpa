@@ -261,3 +261,35 @@ override (airline versus GA).
 **Revisit if.** Presets land, or sector-level data (VATGlasses) can distinguish a dedicated
 departure position from a combined approach/departure one.
 
+---
+
+## ADR-0011 — Blend live staffing into the forecast, with a two-hour decay
+
+**Status:** accepted (2026-11-10)
+
+**Decision.** The browser fetches the live network feed (CORS is `*`), maps each online
+controller's callsign to the FIR or airport it serves using a position index shipped in the
+bundle, and blends the current-hour probability toward 0.95 with linear decay: full trust at
+the moment of the snapshot, nothing two hours out. A live tower lifts the delivery, ground
+and tower layers — not approach, which it does not provide. A live centre lifts all four
+through top-down.
+
+**Why.** The historical model answers "who is usually online on a Tuesday evening". The feed
+answers "who is online right now". For a departure in the next hour the second is strictly
+better information, and ignoring it made the landing page's central promise — the best
+flight *right now* — weaker than it had to be. It also rescues the cold start: on day one,
+with a model made almost entirely of priors, live anchoring is what makes the answer useful.
+
+**Measured.** On the real bundle with one day of history, blending lifted the top results
+from 51% to 65% ATC and reordered the board toward the airspace that is actually staffed
+(Miami Center, Denver). The FIR probability for a live centre goes from 0.008 to 0.95 at the
+snapshot moment and returns exactly to the historical value three hours later.
+
+**Consequences.** The site now depends on a cross-origin fetch; if it fails, it falls back to
+the model silently and the status line drops the "live staffing blended" note. Live state is
+a snapshot, refreshed every two minutes, not a stream — hence the decay rather than a hard
+override.
+
+**Rejected.** Replacing the forecast with live data (destroys the ability to plan ahead);
+no decay (over-trusts a stale snapshot and makes an hour-old page look certain).
+

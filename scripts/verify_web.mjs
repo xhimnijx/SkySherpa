@@ -15,6 +15,7 @@ const bundle = {
   pairs: await json("pairs.json"),
   aircraft: await json("aircraft.json"),
   polygons: await json("polygons.json"),
+  positions: await json("positions.json"),
   firCtr: await bin("fir_ctr.bin"),
   firFss: await bin("fir_fss.bin"),
   airportLayers: await bin("airport_layers.bin"),
