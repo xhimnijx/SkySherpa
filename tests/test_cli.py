@@ -76,6 +76,45 @@ def test_status_prints_the_blocking_items(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "readiness" in out
     assert "waiting on" in out
+def test_status_flags_a_stalled_collector(tmp_path: Path, capsys) -> None:
+    """A dead ingestor must not look like a healthy database.
+
+    The collector is the only component that cannot fail visibly: everything else is
+    downstream of it, so an empty or frozen database looks like "no traffic tonight".
+    """
+    from skysherpa.store import Database
+
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    database.initialize()
+    database.execute(
+        "INSERT INTO snapshot_stat (ts, feed_update, version, connected_clients, "
+        "unique_users, pilots, controllers, atc_positions, observers, atis, prefiled) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("2026-11-09T20:00:00Z", "20261109200000", 3, 1, 1, 10, 2, 2, 0, 0, 0),
+    )
+    database.close()
+
+    assert main(["status", "--data-dir", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["collector"]["alive"] is False
+    assert payload["collector"]["age_seconds"] > 300
+
+    assert main(["status", "--data-dir", str(tmp_path)]) == 0
+    assert "STALLED" in capsys.readouterr().out
+
+
+def test_status_reports_no_polls(tmp_path: Path, capsys) -> None:
+    from skysherpa.store import Database
+
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    database.initialize()
+    database.close()
+
+    assert main(["status", "--data-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "no polls yet" in out
+
+
 def test_unknown_command_exits_nonzero() -> None:
     try:
         main(["nonsense"])

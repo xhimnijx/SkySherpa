@@ -892,6 +892,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     first = stats["first_poll"].strftime("%Y-%m-%d") if stats["first_poll"] else "-"
     last = stats["last_poll"].strftime("%Y-%m-%d") if stats["last_poll"] else "-"
 
+    # The first question on a 24/7 box is "is my collector still alive?". A database with a
+    # day of history and a dead ingestor looks exactly like a healthy one until you notice
+    # the dates.
+    if stats["last_poll"] is None:
+        collector_age = None
+        collector = "no polls yet"
+    else:
+        collector_age = (datetime.now(UTC) - stats["last_poll"]).total_seconds()
+        if collector_age < 300:
+            collector = f"last poll {collector_age:.0f}s ago (alive)"
+        else:
+            collector = f"last poll {collector_age / 60:.0f} min ago (STALLED)"
+
     checks = [
         ("planning", pairs > 0, f"{pairs:,} city pairs", 0),
         ("forecast", days >= 14, f"{days} day(s) of presence", max(0, 14 - days)),
@@ -915,6 +928,11 @@ def cmd_status(args: argparse.Namespace) -> int:
                     "presence_slots": observations,
                     "days_observed": days,
                     "city_pairs": pairs,
+                    "collector": {
+                        "last_poll": last,
+                        "age_seconds": collector_age,
+                        "alive": bool(collector_age is not None and collector_age < 300),
+                    },
                     "readiness": [
                         {"name": name, "ready": ready, "detail": detail, "days_remaining": wait}
                         for name, ready, detail, wait in checks
@@ -932,6 +950,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"observed   {stats['positions']:,} positions | {stats['atc_hours']:.0f} h of ATC | "
           f"{stats['flights']:,} flights")
     print(f"matrix     {observations:,} presence slots over {days} day(s)")
+    print(f"collector  {collector}")
     print("")
     print("readiness")
     for name, ready, detail, wait in checks:
