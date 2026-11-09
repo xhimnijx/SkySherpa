@@ -7,29 +7,35 @@ specification; the P3 implementation should be readable against it line by line.
 
 ## 1. Query model
 
+This is the object the browser actually passes to `createPlanner().plan()`. It changed shape
+during the build: duration became a range rather than a target, and the HTTP API in the
+original design was dropped with the static-site decision (ADR-0009) — the browser is the
+only consumer, and `scripts/verify_web.mjs` passes the same object for parity tests.
+
 ```jsonc
 {
-  "when": { "from": "2026-11-10T18:00:00Z", "to": "2026-11-10T23:00:00Z" },   // or "anytime"
-  "from": null,                    // ICAO | [ICAO] | null  (null = anywhere)
-  "to":   null,
-  "block_minutes": { "target": 180, "tolerance": 15 },
-  "aircraft": ["A20N", "B738"],    // must be in the fleet; null = any owned type
-  "airports": { "only_installed": true, "avoid": ["EGLL"], "require": ["LFPG"] },
-  "arrive_before": "2026-11-13T18:59:00Z",
-  "vibe": "balanced",              // preset name, or explicit weights
-  "weights": null,                 // { "atc_expected": 0.4, ... } overrides preset
-  "max_results": 25,
-  "pareto": true,
-  "explain": "full"                // off | brief | full
+  "departAt": "2026-11-12T19:00:00Z",  // any moment; the forecast is a weekly template
+  "blockMin": 90,                      // minutes, inclusive
+  "blockMax": 240,                     // 30..1440 is reachable from the UI
+  "from": null,                        // ICAO | null (null = anywhere)
+  "to": null,
+  "aircraft": null,                    // ICAO codes; null or [] = anything in the catalogue
+  "preset": "any",                     // any | airline | ga | max
+  "weights": null,                     // { atc, duration, fit, popularity } overrides the preset
+  "limit": 40
 }
 ```
 
-**Hard constraints** (violators are removed before scoring): airport membership, aircraft presence,
-range and runway, block window, absolute time window, avoid-list, ground-time budget.
-**Soft objectives**: everything in §3.
+**Hard constraints** (violators are removed before scoring): airport membership, aircraft
+presence, range, the duration range, and the airport filters. **Soft objectives**: everything
+in §3.
 
-The same query object is accepted by the CLI (flags → query), the HTTP API, and the UI. One code
-path, three skins.
+An empty `aircraft` means "no assumption": every type in the catalogue is a candidate, and
+the route is scored with the airframe the network actually files on that city pair when the
+bundle knows one. Military and vintage types are excluded from that default set.
+
+The watchlist snapshots this object (threshold aside), so a watch keeps meaning what it
+meant when it was armed.
 
 ---
 
