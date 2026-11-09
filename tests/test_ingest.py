@@ -162,7 +162,7 @@ def test_flight_lifecycle(db: Database, ingestor: Ingestor) -> None:
     poll(ingestor, 22, 0, pilots=[pilot("BAW1", plan=flight_plan())])
     poll(ingestor, 22, 1, pilots=[pilot("BAW1", plan=flight_plan(), lat=51.2, lon=-0.2)])
     poll(ingestor, 22, 2, pilots=[pilot("BAW1", plan=flight_plan(), lat=51.4, lon=0.1)])
-    result = poll(ingestor, 22, 3, pilots=FILLER)
+    result = poll(ingestor, 22, 10, pilots=FILLER)  # beyond the 90 s grace
     assert result.flights_closed == 1
 
     row = db.query("SELECT * FROM flight")[0]
@@ -189,7 +189,7 @@ def test_flight_track_is_simplified(db: Database, ingestor: Ingestor) -> None:
                 )
             ],
         )
-    poll(ingestor, 22, 12, pilots=FILLER)
+    poll(ingestor, 22, 15, pilots=FILLER)  # beyond the 90 s grace
     row = db.query("SELECT n_track_points FROM flight")[0]
     stored = db.scalar("SELECT COUNT(*) FROM flight_track")
     assert row["n_track_points"] == stored
@@ -244,3 +244,35 @@ def test_snapshot_stat_records_counts(db: Database, ingestor: Ingestor) -> None:
     assert row["controllers"] == 2
     assert row["atc_positions"] == 1
     assert row["observers"] == 1
+
+
+# ---------------------------------------------------------------- hysteresis
+
+
+def test_single_missed_poll_does_not_split_a_flight(db: Database, ingestor: Ingestor) -> None:
+    """One absent snapshot is an artefact, not a landing.
+
+    On live data this produced two rows for one flight and left 48% of the table with no
+    block time -- phantom flights that also inflated the route popularity counts.
+    """
+    crew = pilot("BAW123", plan=flight_plan("EGLL", "LEPA"))
+    poll(ingestor, 22, 0, pilots=[crew])
+    poll(ingestor, 22, 1, pilots=FILLER)
+    poll(ingestor, 22, 1, 30, pilots=[crew])
+    assert db.scalar("SELECT COUNT(*) FROM flight") == 1
+
+
+def test_long_absence_closes_the_flight(db: Database, ingestor: Ingestor) -> None:
+    crew = pilot("BAW123", plan=flight_plan("EGLL", "LEPA"))
+    poll(ingestor, 22, 0, pilots=[crew])
+    poll(ingestor, 22, 10, pilots=FILLER)
+    poll(ingestor, 22, 11, pilots=[crew])
+    assert db.scalar("SELECT COUNT(*) FROM flight") == 2
+
+
+def test_missing_plan_does_not_close_the_flight(db: Database, ingestor: Ingestor) -> None:
+    crew = pilot("BAW123", plan=flight_plan("EGLL", "LEPA"))
+    poll(ingestor, 22, 0, pilots=[crew])
+    poll(ingestor, 22, 1, pilots=[pilot("BAW123")])  # present, but the plan vanished
+    poll(ingestor, 22, 2, pilots=[crew])
+    assert db.scalar("SELECT COUNT(*) FROM flight") == 1

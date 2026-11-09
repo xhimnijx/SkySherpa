@@ -71,6 +71,13 @@ class _ActiveSession:
     frequency_mhz: float | None
 
 
+#: How long a pilot may be missing from the feed before the flight is considered over.
+#: One missed poll is a snapshot artefact, not a landing: without this grace the flight was
+#: closed and reopened, producing two rows for one flight (48% of the live database had no
+#: block time, most of them these phantoms).
+FLIGHT_GRACE = timedelta(seconds=90)
+
+
 @dataclass(slots=True)
 class _ActiveFlight:
     flight_id: int
@@ -261,9 +268,12 @@ class Ingestor:
         opened = 0
         for pilot in snapshot.pilots:
             plan = pilot.flight_plan
-            if plan is None or not plan.departure or not plan.arrival:
-                continue
             callsign = pilot.callsign
+            if plan is None or not plan.departure or not plan.arrival:
+                # A pilot whose plan is momentarily absent from the feed is still flying.
+                # Counting them as gone closed the flight and opened a duplicate next poll.
+                seen.add(callsign)
+                continue
             seen.add(callsign)
             active = self._flights.get(callsign)
 
@@ -281,6 +291,9 @@ class Ingestor:
 
         closed = 0
         for callsign in [key for key in self._flights if key not in seen]:
+            active = self._flights[callsign]
+            if ts - active.last_seen <= FLIGHT_GRACE:
+                continue  # absent from this snapshot only; keep the flight open
             self._finish_flight(self._flights.pop(callsign), ts)
             closed += 1
         return opened, closed
