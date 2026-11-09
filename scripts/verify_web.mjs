@@ -15,8 +15,9 @@ const bundle = {
   pairs: await json("pairs.json"),
   aircraft: await json("aircraft.json"),
   polygons: await json("polygons.json"),
-  firProb: await bin("fir_prob.bin"),
-  airportProb: await bin("airport_prob.bin"),
+  firCtr: await bin("fir_ctr.bin"),
+  firFss: await bin("fir_fss.bin"),
+  airportLayers: await bin("airport_layers.bin"),
   firGrid: new Uint16Array((await bin("fir_grid.bin")).buffer),
 };
 
@@ -44,33 +45,39 @@ for (const icao of ["A20N", "B738", "C172", "DH8D", "A388"]) {
   if (spec) blockTimes[icao] = [200, 600, 1000].map((nm) => estimateBlockMinutes(spec, nm));
 }
 
-console.log(
-  JSON.stringify(
-    {
-      meta: bundle.meta,
-      bundle: {
-        firs: bundle.firs.length,
-        airports: bundle.airports.length,
-        pairs: bundle.pairs.length,
-        polygons: bundle.polygons.length,
-        aircraft: bundle.aircraft.length,
-      },
-      evaluated: outcome.evaluated,
-      matched: outcome.matched,
-      elapsed_ms: Number(outcome.elapsedMs.toFixed(1)),
-      staffed_firs_now: staffed.length,
-      block_times: blockTimes,
-      top: outcome.results.map((result) => ({
-        route: `${result.dep}-${result.arr}`,
-        block_min: result.block,
-        distance_nm: result.distance,
-        atc_pct: Number((result.atc * 100).toFixed(1)),
-        enroute_pct: Number((result.enroute * 100).toFixed(1)),
-        utility: Number(result.utility.toFixed(4)),
-        why: explain(result),
-      })),
-    },
-    null,
-    2,
-  ),
-);
+const summary = {
+  meta: bundle.meta,
+  bundle: {
+    firs: bundle.firs.length,
+    airports: bundle.airports.length,
+    pairs: bundle.pairs.length,
+    polygons: bundle.polygons.length,
+    aircraft: bundle.aircraft.length,
+  },
+  evaluated: outcome.evaluated,
+  matched: outcome.matched,
+  elapsed_ms: Number(outcome.elapsedMs.toFixed(1)),
+  staffed_firs_now: staffed.length,
+  block_times: blockTimes,
+  top: outcome.results.map((result) => ({
+    route: `${result.dep}-${result.arr}`,
+    block_min: result.block,
+    distance_nm: result.distance,
+    atc_pct: Number((result.atc * 100).toFixed(1)),
+    enroute_pct: Number((result.enroute * 100).toFixed(1)),
+    utility: Number(result.utility.toFixed(4)),
+    why: explain(result),
+  })),
+};
+
+if (process.argv.includes("--table")) {
+  console.log(`matched ${summary.matched}/${summary.evaluated} in ${summary.elapsed_ms} ms`);
+  for (const row of summary.top) {
+    console.log(
+      `${row.route.padEnd(11)} ${String(row.block_min).padStart(4)}m ` +
+        `${row.atc_pct.toFixed(1).padStart(5)}% atc  ${row.why}`,
+    );
+  }
+} else {
+  console.log(JSON.stringify(summary, null, 2));
+}

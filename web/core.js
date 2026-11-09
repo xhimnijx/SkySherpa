@@ -10,6 +10,36 @@ export const HOURS_PER_WEEK = 168;
 const EARTH_RADIUS_NM = 3440.065;
 const RAD = Math.PI / 180;
 
+// Terminal layers, shallow to deep. Each value is P(that service is available), already
+// including top-down cover from above in the export.
+export const LAYERS = ["del", "gnd", "twr", "app"];
+const LAYER_NAMES = { del: "delivery", gnd: "ground", twr: "tower", app: "approach" };
+
+// What each layer is worth on departure and on arrival. Approach and tower are the
+// moments where a human actually changes your flight; delivery and ground are the
+// polish that makes a big airport feel alive. Arrival has no delivery: you are not
+// asking for a clearance at the gate after you land.
+export const DEPARTURE_WEIGHTS = { del: 0.15, gnd: 0.15, twr: 0.35, app: 0.35 };
+export const ARRIVAL_WEIGHTS = { del: 0.0, gnd: 0.15, twr: 0.35, app: 0.5 };
+
+// En-route: a centre controls, a flight service station informs. FSS is worth something
+// when nobody is controlling, and nothing extra when a centre is already on.
+const FSS_VALUE = 0.35;
+
+export function terminalScore(layers, weights) {
+  let total = 0;
+  for (const layer of LAYERS) total += (weights[layer] || 0) * (layers[layer] || 0);
+  return total;
+}
+
+export function describeStack(layers, label) {
+  if (!layers) return "";
+  const present = LAYERS.filter((layer) => layers[layer] >= 0.5).map((layer) => LAYER_NAMES[layer]);
+  if (present.length === 4) return `${label}: full stack`;
+  if (present.length === 0) return `${label}: no ATC`;
+  return `${label}: ${present.join(" + ")}`;
+}
+
 export function haversineNm(a, b) {
   const [lat1, lon1] = a;
   const [lat2, lon2] = b;
@@ -76,7 +106,7 @@ export function estimateBlockMinutes(aircraft, distanceNm, options = {}) {
 }
 
 export function createPlanner(bundle) {
-  const { meta, firs, firProb, firGrid, airports, airportProb, pairs, aircraft } = bundle;
+  const { meta, firs, firCtr, firFss, firGrid, airports, airportLayers, pairs, aircraft } = bundle;
   const width = meta.grid.width;
   const height = meta.grid.height;
   const resolution = meta.grid.resolution;
@@ -93,15 +123,36 @@ export function createPlanner(bundle) {
     return firGrid[y * width + x];
   }
 
-  function firProbability(index, hour) {
+  function firCtrProbability(index, hour) {
     if (!index) return 0;
-    return firProb[(index - 1) * HOURS_PER_WEEK + hour] / 255;
+    return firCtr[(index - 1) * HOURS_PER_WEEK + hour] / 255;
   }
 
-  function airportProbability(icao, hour) {
+  function firFssProbability(index, hour) {
+    if (!index) return 0;
+    return firFss[(index - 1) * HOURS_PER_WEEK + hour] / 255;
+  }
+
+  function firProbability(index, hour) {
+    const control = firCtrProbability(index, hour);
+    const service = firFssProbability(index, hour);
+    return control + FSS_VALUE * service * (1 - control);
+  }
+
+  function airportLayer(icao, layerIndex, hour) {
     const slot = airportSlot.get(icao);
     if (slot === undefined) return 0;
-    return airportProb[slot * HOURS_PER_WEEK + hour] / 255;
+    const offset = (slot * LAYERS.length + layerIndex) * HOURS_PER_WEEK + hour;
+    return airportLayers[offset] / 255;
+  }
+
+  function layersAt(icao, hour) {
+    return {
+      del: airportLayer(icao, 0, hour),
+      gnd: airportLayer(icao, 1, hour),
+      twr: airportLayer(icao, 2, hour),
+      app: airportLayer(icao, 3, hour),
+    };
   }
 
   function routeProfile(departure, arrival, departAt, aircraftSpec) {
@@ -135,17 +186,19 @@ export function createPlanner(bundle) {
       }
     }
     enroute /= samples + 1;
-    const departureP = airportProbability(departure.icao, hourIndex(departAt));
-    const arrivalP = airportProbability(
-      arrival.icao,
-      hourIndex(new Date(departAt.getTime() + block * 60000)),
-    );
+    const arrivalMoment = new Date(departAt.getTime() + block * 60000);
+    const departureLayers = layersAt(departure.icao, hourIndex(departAt));
+    const arrivalLayers = layersAt(arrival.icao, hourIndex(arrivalMoment));
+    const departureP = terminalScore(departureLayers, DEPARTURE_WEIGHTS);
+    const arrivalP = terminalScore(arrivalLayers, ARRIVAL_WEIGHTS);
     return {
       distance,
       block,
       enroute,
       departureP,
       arrivalP,
+      departureLayers,
+      arrivalLayers,
       coveredShare: covered / (samples + 1),
       unicomShare: longestGap / (samples + 1),
     };
@@ -162,7 +215,7 @@ export function createPlanner(bundle) {
       if (Math.abs(profile.block - blockTarget) > tolerance) return null;
     }
 
-    const atc = 0.6 * profile.enroute + 0.2 * profile.departureP + 0.2 * profile.arrivalP;
+    const atc = 0.55 * profile.enroute + 0.2 * profile.departureP + 0.25 * profile.arrivalP;
     const durationFit = blockTarget
       ? Math.max(0, 1 - Math.abs(profile.block - blockTarget) / Math.max(1, tolerance))
       : 0.5;
@@ -183,6 +236,8 @@ export function createPlanner(bundle) {
       enroute: profile.enroute,
       departureP: profile.departureP,
       arrivalP: profile.arrivalP,
+      departureLayers: profile.departureLayers,
+      arrivalLayers: profile.arrivalLayers,
       atc,
       durationFit,
       popularity,
@@ -263,7 +318,10 @@ export function createPlanner(bundle) {
     routeProfile,
     firIndexAt,
     firProbability,
-    airportProbability,
+    firCtrProbability,
+    firFssProbability,
+    airportLayer,
+    layersAt,
     firCodeOf,
     coverageAt,
     hourIndex,
@@ -279,14 +337,17 @@ export function createPlanner(bundle) {
 }
 
 export function explain(result) {
-  // The percentage is already on the board; this line explains *why*.
+  // The percentage is already on the board; this line explains *why*, and which
+  // controllers you would actually talk to.
   const parts = [];
   if (result.enroute >= 0.55) parts.push("solid en-route cover");
   else if (result.enroute >= 0.25) parts.push("patchy en-route");
   else if (result.enroute >= 0.05) parts.push("thin en-route cover");
   else parts.push("en-route mostly unicom");
-  if (result.departureP >= 0.5) parts.push("tower on departure");
-  if (result.arrivalP >= 0.5) parts.push("approach on arrival");
+  const departure = describeStack(result.departureLayers, "departure");
+  const arrival = describeStack(result.arrivalLayers, "arrival");
+  if (departure) parts.push(departure);
+  if (arrival) parts.push(arrival);
   if (result.observed >= 5) parts.push(`${result.observed} recent flights`);
   return parts.join(" · ");
 }

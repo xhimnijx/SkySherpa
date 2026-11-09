@@ -77,11 +77,45 @@ def test_meta_counts(bundle) -> None:
 def test_probability_arrays_have_the_right_length(bundle) -> None:
     out, meta = bundle
     data = out / "data"
-    fir_bytes = (data / "fir_prob.bin").read_bytes()
-    airport_bytes = (data / "airport_prob.bin").read_bytes()
-    assert len(fir_bytes) == meta["fir_count"] * 168
-    assert len(airport_bytes) == meta["airport_count"] * 168
-    assert max(fir_bytes) <= 255
+    ctr = (data / "fir_ctr.bin").read_bytes()
+    fss = (data / "fir_fss.bin").read_bytes()
+    layers = (data / "airport_layers.bin").read_bytes()
+    assert len(ctr) == meta["fir_count"] * 168
+    assert len(fss) == meta["fir_count"] * 168
+    assert len(layers) == meta["airport_count"] * 168 * 4
+    assert max(ctr) <= 255 and max(fss) <= 255 and max(layers) <= 255
+
+
+def test_meta_declares_the_layer_stack(bundle) -> None:
+    _, meta = bundle
+    assert meta["layers"] == ["del", "gnd", "twr", "app"]
+    assert meta["airport_layer_bytes"] == 4 * 168
+
+
+def test_layers_are_nested(bundle) -> None:
+    """Delivery >= ground >= tower >= approach.
+
+    A centre working top-down provides every layer beneath it, so it is impossible to be
+    more likely to get a delivery clearance than a tower service. If this invariant ever
+    breaks, the union logic in the exporter is wrong.
+    """
+    out, meta = bundle
+    payload = (out / "data" / "airport_layers.bin").read_bytes()
+    airports = meta["airport_count"]
+    for airport in range(airports):
+        base = airport * 4 * 168
+        delivery, ground, tower, approach = (
+            payload[base + layer * 168 : base + (layer + 1) * 168] for layer in range(4)
+        )
+        for hour in range(168):
+            assert delivery[hour] >= ground[hour] >= tower[hour] >= approach[hour]
+
+
+def test_airports_have_no_inline_probabilities(bundle) -> None:
+    out, _ = bundle
+    airports = json.loads((out / "data" / "airports.json").read_text(encoding="utf-8"))
+    assert airports
+    assert all("p" not in airport for airport in airports)
 
 
 def test_grid_is_a_full_world(bundle) -> None:
@@ -105,13 +139,12 @@ def test_grid_maps_a_point_to_the_right_fir(bundle) -> None:
     assert lookup(0.0, -150.0) == 0  # middle of the Pacific: no FIR
 
 
-def test_airports_carry_probabilities_not_just_coordinates(bundle) -> None:
+def test_airports_carry_expected_metadata(bundle) -> None:
     out, _ = bundle
     airports = json.loads((out / "data" / "airports.json").read_text(encoding="utf-8"))
     heathrow = next(item for item in airports if item["icao"] == "EGLL")
     assert heathrow["lat"] == pytest.approx(51.4775)
     assert heathrow["traffic"] > 0
-    assert "p" not in heathrow, "probabilities live in the binary, not the index"
 
 
 def test_pairs_reference_known_airports(bundle) -> None:

@@ -44,10 +44,11 @@ async function loadBundle() {
     json("aircraft.json"),
     json("polygons.json"),
   ]);
-  const [firProbBuf, airportProbBuf, firGridBuf] = await Promise.all([
-    binary("fir_prob.bin"),
-    binary("airport_prob.bin"),
+  const [firCtrBuf, firFssBuf, firGridBuf, airportLayersBuf] = await Promise.all([
+    binary("fir_ctr.bin"),
+    binary("fir_fss.bin"),
     binary("fir_grid.bin"),
+    binary("airport_layers.bin"),
   ]);
 
   return {
@@ -57,9 +58,10 @@ async function loadBundle() {
     pairs,
     aircraft,
     polygons,
-    firProb: new Uint8Array(firProbBuf),
-    airportProb: new Uint8Array(airportProbBuf),
+    firCtr: new Uint8Array(firCtrBuf),
+    firFss: new Uint8Array(firFssBuf),
     firGrid: new Uint16Array(firGridBuf),
+    airportLayers: new Uint8Array(airportLayersBuf),
   };
 }
 

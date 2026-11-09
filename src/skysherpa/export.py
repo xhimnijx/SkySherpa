@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import struct
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -231,51 +232,63 @@ def build_bundle(
 
     modelled = set(model.positions)
 
-    # ---- FIR probabilities -------------------------------------------------
+    # ---- en-route probabilities: control and flight service, separately ------
     fir_codes: set[str] = set(position_fir.values())
     if reference is not None:
         fir_codes |= {code.split("-")[0] for code in reference.firs}
     fir_list = sorted(fir_codes)
     fir_index = {code: i + 1 for i, code in enumerate(fir_list)}  # grid uses 1-based
 
-    enroute_by_fir: dict[str, list[str]] = {}
-    for position, fir in position_fir.items():
-        if facility_of.get(position) in ("CTR", "FSS") and position in modelled:
-            enroute_by_fir.setdefault(fir, []).append(position)
-
-    fir_probabilities: list[list[int]] = []
-    for code in fir_list:
-        positions = enroute_by_fir.get(code, [])
+    def _combine(positions: list[str]) -> list[int]:
         if not positions:
-            fir_probabilities.append([0] * HOURS_PER_WEEK)
-            continue
+            return [0] * HOURS_PER_WEEK
         joined = [_hourly_week(model, position) for position in positions]
-        fir_probabilities.append(
-            [_any_of(cell[hour] for cell in joined) for hour in range(HOURS_PER_WEEK)]
-        )
+        return [_any_of(cell[hour] for cell in joined) for hour in range(HOURS_PER_WEEK)]
 
-    # ---- airport probabilities --------------------------------------------
-    terminal_by_airport: dict[str, list[str]] = {}
+    by_fir: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for position, fir in position_fir.items():
+        facility = facility_of.get(position)
+        if position in modelled and facility in ("CTR", "FSS"):
+            by_fir[fir][facility].append(position)
+
+    fir_ctr = {code: _combine(by_fir[code]["CTR"]) for code in fir_list}
+    fir_fss = {code: _combine(by_fir[code]["FSS"]) for code in fir_list}
+
+    # ---- airport service stack ---------------------------------------------
+    # The layers are nested, because a controller working top-down provides every
+    # layer beneath them: a centre covers approach, tower, ground *and* delivery.
+    # So each layer is the union of its own positions and the layer above it, which
+    # is also why ground coverage can never exceed tower coverage, and why a tower
+    # alone is a fundamentally different experience from a full stack.
+    by_airport: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     for position, airport in position_airport.items():
-        if facility_of.get(position) in ("TWR", "APP", "GND", "DEL") and position in modelled:
-            terminal_by_airport.setdefault(airport, []).append(position)
+        facility = facility_of.get(position)
+        if position in modelled and facility in ("DEL", "GND", "TWR", "APP"):
+            by_airport[airport][facility].append(position)
 
+    def _union(lower: list[int], upper: list[int]) -> list[int]:
+        return [
+            quantise(1.0 - (1.0 - a / 255.0) * (1.0 - b / 255.0))
+            for a, b in zip(lower, upper)
+        ]
+
+    zeros = [0] * HOURS_PER_WEEK
     traffic = _airport_traffic(db)
-    candidates = set(terminal_by_airport) | set(traffic)
-    airports = []
+    candidates = set(by_airport) | set(traffic)
+    airports: list[dict[str, Any]] = []
+    airport_layers: dict[str, list[list[int]]] = {}
     if reference is not None:
         for icao in sorted(candidates, key=lambda code: -traffic.get(code, 0))[:max_airports]:
             airport = reference.airports.get(icao)
             if airport is None:
                 continue
-            positions = terminal_by_airport.get(icao, [])
-            if positions:
-                joined = [_hourly_week(model, position) for position in positions]
-                probabilities = [
-                    _any_of(cell[hour] for cell in joined) for hour in range(HOURS_PER_WEEK)
-                ]
-            else:
-                probabilities = [0] * HOURS_PER_WEEK
+            fir = (airport.fir or "").upper()
+            centre = fir_ctr.get(fir, zeros)
+            approach = _union(_combine(by_airport[icao]["APP"]), centre)
+            tower = _union(_combine(by_airport[icao]["TWR"]), approach)
+            ground = _union(_combine(by_airport[icao]["GND"]), tower)
+            delivery = _union(_combine(by_airport[icao]["DEL"]), ground)
+            airport_layers[icao] = [delivery, ground, tower, approach]
             airports.append(
                 {
                     "icao": icao,
@@ -285,7 +298,6 @@ def build_bundle(
                     "iata": airport.iata,
                     "fir": airport.fir,
                     "traffic": traffic.get(icao, 0),
-                    "p": probabilities,
                 }
             )
 
@@ -355,6 +367,10 @@ def build_bundle(
         "fir_count": len(fir_list),
         "airport_count": len(airports),
         "pair_count": len(pairs),
+        # Terminal layers, shallow to deep. Each is the probability that *this* service is
+        # available, including top-down cover from the layer above.
+        "layers": ["del", "gnd", "twr", "app"],
+        "airport_layer_bytes": 4 * HOURS_PER_WEEK,
         "positions_modelled": len(model.positions),
         "days_observed": len({d for rows in matrix.days.values() for d, _, _ in rows}),
         "half_life_days": model.params.half_life_days,
@@ -379,19 +395,18 @@ def build_bundle(
 
     write_json("meta.json", meta)
     write_json("firs.json", [{"code": code} for code in fir_list])
-    write_binary(
-        "fir_prob.bin", bytes(value for row in fir_probabilities for value in row)
-    )
+    write_binary("fir_ctr.bin", bytes(value for code in fir_list for value in fir_ctr[code]))
+    write_binary("fir_fss.bin", bytes(value for code in fir_list for value in fir_fss[code]))
     write_binary("fir_grid.bin", grid)
-    write_json(
-        "airports.json",
-        [
-            {key: value for key, value in airport.items() if key != "p"}
-            for airport in airports
-        ],
-    )
+    write_json("airports.json", airports)
     write_binary(
-        "airport_prob.bin", bytes(value for airport in airports for value in airport["p"])
+        "airport_layers.bin",
+        bytes(
+            value
+            for airport in airports
+            for layer in airport_layers[airport["icao"]]
+            for value in layer
+        ),
     )
     write_json("pairs.json", pairs)
     write_json("aircraft.json", aircraft)

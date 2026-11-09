@@ -221,3 +221,43 @@ authoritative. Forecast staleness is surfaced in the header rather than hidden.
 **Revisit if.** Sector-level answers become necessary (the bundle grows), or the corpus needs
 to be queried in ways that cannot fit in a few megabytes.
 
+---
+
+## ADR-0010 — Model the ATC service stack, not a single coverage number
+
+**Status:** accepted (2026-11-10)
+
+**Decision.** Export four terminal probabilities per airport-hour — delivery, ground, tower,
+approach — and separate centre/flight-service probabilities per FIR-hour. The layers are
+**nested**: a centre working top-down provides approach, tower, ground and delivery, so
+delivery coverage can never be lower than ground coverage, which can never be lower than
+tower, and so on. The client weights them per phase:
+
+| | delivery | ground | tower | approach |
+| --- | --- | --- | --- | --- |
+| departure | 0.15 | 0.15 | 0.35 | 0.35 |
+| arrival | 0.00 | 0.15 | 0.35 | 0.50 |
+
+Overall: 55% en-route, 20% departure, 25% arrival. En-route combines centre with flight
+service at 35% value, and only for the share of the time no centre is on.
+
+**Why.** The first version collapsed "any terminal ATC" into one number per airport. That
+made a tower-only grass strip indistinguishable from a fully-staffed hub, made every
+explanation vacuous ("tower likely on departure" was returned for any of four layers), and
+ignored top-down — which is exactly the mechanism that lets one `EGTT_CTR` make a whole
+country feel staffed.
+
+Delivery is the least valuable layer: it is one clearance at the gate that a pilot can
+self-serve, so it carries 15% on departure and nothing on arrival. Approach and tower are
+the two moments where a human actually changes what you fly, so they carry 70% of the
+terminal score. Flight service is informational rather than control, hence 35%.
+
+**Consequences.** The bundle grows by about 100 KB (four layers of bytes per airport). The
+nesting invariant is property-tested, so a mistake in the union logic fails CI rather than
+quietly making ground coverage exceed tower coverage. The weights are a stated product
+opinion, written into the UI, and are the natural first thing for per-user presets to
+override (airline versus GA).
+
+**Revisit if.** Presets land, or sector-level data (VATGlasses) can distinguish a dedicated
+departure position from a combined approach/departure one.
+
