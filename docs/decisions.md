@@ -144,3 +144,35 @@ moment it matters (day zero). Building the history ourselves is slower but certa
 only way to control resolution, gaps, and quality gates.
 
 **Revisit if.** The endpoint stabilises and offers deeper history than we have accumulated.
+
+---
+
+## ADR-0008 — Ship a curated aircraft catalogue; do not scan the simulator install
+
+**Status:** accepted (2026-11-10)
+
+**Decision.** The aircraft catalogue is a versioned dataset in the repository:
+`src/skysherpa/data/aircraft_types.csv` (159 airframes with dispatch numbers — range,
+cruise TAS and level, MTOW, runway requirement, climb/descent rates, taxi allowance) and
+`aircraft_variants.csv` (195 add-on products tagged by developer, simulator, fidelity,
+and freeware). The user's fleet is a local JSON file that migrates to `user_fleet` in P1.
+
+**Why.** Scanning MSFS `Community` or X-Plane `Custom Scenery` was the obvious
+alternative, and it is a trap. Marketplace and streamed installs leave no scannable
+artefact; package layout changes between simulator versions; and a scan returns names
+without the numbers the dispatcher actually needs. Range and runway decide which flights
+are *possible* before any score is computed — a name alone cannot do that. A shipped
+table works on every machine, reviews in a diff, and can be corrected when someone spots
+a wrong figure.
+
+The variant layer is what users actually choose from. Fenix A320, Asobo A320neo and
+FlyByWire A32NX are the same request at different fidelity; keeping them distinct in the
+catalogue without duplicating performance data is the whole point of the split.
+
+**Trade-off.** The catalogue goes stale as add-ons ship. Mitigated by a `confidence`
+column, a one-row pull request to add an add-on, and block-time estimates that are
+property-tested for monotonicity and carry a documented ±10% tolerance.
+
+**Revisit if.** A reliable cross-platform scanner emerges — but it would only ever supply
+the variant layer, never the performance layer.
+

@@ -139,6 +139,7 @@ Full detail, including quirks and exact response shapes, in
 | FIR polygons | `Boundaries.geojson` | weekly | 2.33 MB | Point-in-FIR, coverage geometry | GeoJSON FeatureCollection |
 | Weather | `aviationweather.gov/api/data/{metar,taf}` | 5–30 min | small | Wx suitability, wind | Free, no key; gives `fltCat`, `rawOb`, TAF `fcsts` |
 | Runways | OurAirports CSV exports | monthly | ~10 MB | Runway length vs. fleet | Public domain |
+| **Aircraft** | `src/skysherpa/data/*.csv` (shipped) | with the repo | 159 types / 195 variants | Fleet, block time, runway fit | Curated, not scanned — ADR-0008 |
 | Events | VATSIM Events API | 6 h | small | Event-aware boosting | Base URL not yet confirmed → adapter + fallback (open item O2) |
 | Routes (optional) | SimBrief API (user key) | on demand | route | Route generation tier 3 | Free key, user-supplied |
 | Logbook (optional) | VATSIM Connect OAuth | on login | — | Personalisation, novelty | OAuth2, user-consented |
@@ -534,8 +535,11 @@ Targets in P3: `hit@1 ≥ 0.70` vs. a random-realistic baseline, `regret@1 ≤ 0
 Each phase ends with something usable and a gate that can fail.
 
 ### P0 — Scaffold and plan ✅
-Repo, ADRs, verified source inventory, `doctor`, `sniff`, parser + geo unit tests.
-**Gate:** `doctor` exits 0 on a healthy machine; `sniff` renders a live network read-out.
+Repo, ADRs, verified source inventory, `doctor`, `sniff`, parser + geo unit tests, and the
+aircraft catalogue (159 types, 195 add-on variants) with a block-time model and a local
+fleet manager.
+**Gate:** `doctor` exits 0 on a healthy machine; `sniff` renders a live network read-out;
+`aircraft`/`fleet` round-trip with no network access.
 
 ### P1 — Spine (≈ 1 week)
 Polling loop, sessionizer, SQLite schema, gap ledger, static reference loader, FIR resolution,
@@ -637,7 +641,7 @@ rating tool; anything that automates flying; anything that needs a cloud account
 | --- | --- | --- | --- |
 | D1 | Name | SkySherpa / Vector / Handoff / your call | SkySherpa is a placeholder; trivially renamed |
 | D2 | Interface order | CLI+API first, UI in P4 *(current plan)* vs. UI first | CLI first: it is the fastest way to validate the model |
-| D3 | Fleet source | Manual JSON + CSV import *(current)* vs. scan MSFS `Community` / X-Plane `Custom Scenery` | Manual first; scanning is fragile and OS-specific, but a great P5 "one-click import" |
+| D3 | Fleet source | ~~Manual JSON vs. sim scan~~ **Resolved:** shipped catalogue + local fleet file (ADR-0008); no install scanning | Catalogue is the only option that carries performance data and works with streamed or Marketplace installs |
 | D4 | History | Start collecting now vs. chase a third-party archive | Start now; treat archives as optional backfill |
 | D5 | Home region default | User-selected vs. inferred from IP/timezone | User-selected (no telemetry) |
 | D6 | Licence | Private / MIT / AGPL | Private until P3, then decide (AGPL if it ever goes public) |

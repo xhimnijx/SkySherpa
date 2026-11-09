@@ -53,7 +53,6 @@ def test_unknown_command_exits_nonzero() -> None:
 
 
 def test_sniff_json_shape_without_network(monkeypatch, capsys) -> None:
-    """Exercise the sniffer's serialisation path with a canned snapshot."""
     from skysherpa import cli
     from skysherpa.feed import parse_snapshot
 

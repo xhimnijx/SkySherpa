@@ -1,5 +1,7 @@
 # --- runtime data (never commit: contains live member data) ---
-data/
+# Anchored to the repo root: `data/` alone would also swallow the shipped
+# catalogue at src/skysherpa/data/, which is the product.
+/data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

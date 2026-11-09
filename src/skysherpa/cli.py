@@ -15,9 +15,11 @@ from collections import Counter
 from dataclasses import dataclass
 
 from . import __version__, doctor
+from .aircraft import CLASSES, ENGINES, SIMS, AircraftCatalog, load_catalog
 from .callsign import parse as parse_callsign
 from .config import Settings
 from .feed import FeedError, Snapshot, fetch_snapshot
+from .fleet import Fleet
 from .routes import parse_route
 from .staticdata import StaticReference, load_reference
 
@@ -312,6 +314,205 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+# ------------------------------------------------------------------- catalogue
+
+
+def _truncate(text: str, width: int) -> str:
+    if len(text) <= width:
+        return text
+    return text[: max(0, width - 3)] + "..."
+
+
+def _reference_distances(aircraft) -> tuple[int, ...]:
+    if aircraft.aircraft_class in ("general", "helicopter"):
+        return (50, 150, 300)
+    if aircraft.aircraft_class == "turboprop":
+        return (100, 250, 500)
+    return (200, 500, 1000)
+
+
+def _print_aircraft(aircraft, catalog: AircraftCatalog) -> int:
+    ceiling_fl = aircraft.ceiling_ft // 100
+    print(f"{aircraft.icao}  {aircraft.name}")
+    print("-" * 74)
+    print(
+        f"  {aircraft.manufacturer} | {aircraft.aircraft_class} | {aircraft.engine} | "
+        f"wake {aircraft.wake} | {aircraft.engines} engine(s)"
+    )
+    print(f"  range      {aircraft.range_nm:>8,} nm")
+    print(
+        f"  cruise     {aircraft.cruise_tas_kt:>8,} kt at FL{aircraft.cruise_fl:03d}"
+        f"   (ceiling FL{ceiling_fl:03d})"
+    )
+    print(f"  MTOW       {aircraft.mtow_kg:>8,} kg")
+    if aircraft.min_runway_ft:
+        print(f"  runway     {aircraft.min_runway_ft:>8,} ft")
+    else:
+        print("  runway          n/a   (helicopter)")
+    print(
+        f"  taxi       {aircraft.taxi_min:>8,} min"
+        f"   (ground allowance, both ends)"
+    )
+    print(f"  confidence {aircraft.confidence:>8}")
+    if aircraft.notes:
+        print(f"  notes      {aircraft.notes}")
+
+    print("")
+    print("  estimated block time")
+    for distance in _reference_distances(aircraft):
+        minutes = aircraft.estimate_block_minutes(distance)
+        print(f"    {distance:>6,} nm {minutes:>6,} min")
+
+    variants = catalog.variants_for(aircraft.icao)
+    print("")
+    print(f"  add-ons ({len(variants)})")
+    print(f"    {'ID':<26} {'PRODUCT':<34} {'DEVELOPER':<20} {'SIM':<7} FIDELITY")
+    for variant in sorted(variants, key=lambda v: (v.sim, v.developer, v.name)):
+        marker = " free" if variant.freeware else ""
+        print(
+            f"    {variant.id:<26} {_truncate(variant.name, 34):<34} "
+            f"{_truncate(variant.developer, 20):<20} {variant.sim:<7} "
+            f"{variant.fidelity}{marker}"
+        )
+    return 0
+
+
+def cmd_aircraft(args: argparse.Namespace) -> int:
+    catalog = load_catalog()
+
+    if args.icao:
+        aircraft = catalog.get(args.icao)
+        if aircraft is None:
+            print(f"unknown aircraft type: {args.icao}", file=sys.stderr)
+            return 2
+        return _print_aircraft(aircraft, catalog)
+
+    results = catalog.filter(
+        aircraft_class=args.aircraft_class,
+        engine=args.engine,
+        sim=args.sim,
+        freeware=args.freeware,
+        search=args.search,
+        max_runway_ft=args.max_runway,
+    )
+    if not results:
+        print("no aircraft match those filters", file=sys.stderr)
+        return 2
+
+    if args.json:
+        payload = {
+            "count": len(results),
+            "catalog": {
+                "types": len(catalog.types),
+                "variants": len(catalog.variants),
+            },
+            "types": [
+                {
+                    "icao": t.icao,
+                    "name": t.name,
+                    "manufacturer": t.manufacturer,
+                    "class": t.aircraft_class,
+                    "engine": t.engine,
+                    "wake": t.wake,
+                    "range_nm": t.range_nm,
+                    "cruise_tas_kt": t.cruise_tas_kt,
+                    "cruise_fl": t.cruise_fl,
+                    "variant_count": len(catalog.variants_for(t.icao)),
+                }
+                for t in results
+            ],
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    classes = ", ".join(
+        f"{name} {count}" for name, count in sorted(catalog.class_counts().items())
+    )
+    print(
+        f"{len(catalog.types)} aircraft types | {len(catalog.variants)} add-on variants | {classes}"
+    )
+    print("")
+    print(f"  {'ICAO':<5} {'AIRCRAFT':<34} {'CLASS':<11} {'WAKE':<5} {'RANGE':>6} {'TAS':>5} {'ADD-ON':>7}")
+    limit = args.limit if args.limit > 0 else len(results)
+    for aircraft in results[:limit]:
+        count = len(catalog.variants_for(aircraft.icao))
+        print(
+            f"  {aircraft.icao:<5} {_truncate(aircraft.name, 34):<34} "
+            f"{aircraft.aircraft_class:<11} {aircraft.wake:<5} {aircraft.range_nm:>6,} "
+            f"{aircraft.cruise_tas_kt:>5,} {count:>7}"
+        )
+    if limit < len(results):
+        print("")
+        print(f"  showing {limit} of {len(results)}; use --limit 0 for all")
+    print("")
+    print("  detail: skysherpa aircraft A20N     add to fleet: skysherpa fleet --add A20N")
+    return 0
+
+
+def cmd_fleet(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    catalog = load_catalog()
+    fleet = Fleet(settings.data_dir / "fleet.json")
+
+    if args.clear:
+        fleet.clear()
+        print("fleet cleared")
+        return 0
+    if args.remove:
+        if fleet.remove(args.remove):
+            print(f"removed {args.remove.upper()}")
+            return 0
+        print(f"{args.remove.upper()} is not in your fleet", file=sys.stderr)
+        return 2
+    if args.add:
+        try:
+            entry = fleet.add(args.add, catalog, variant_id=args.variant, label=args.label)
+        except (KeyError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        variant = catalog.variant(entry.variant_id)
+        print(f"added {entry.icao} as {variant.name if variant else entry.variant_id}")
+        print("")
+
+    entries = fleet.load()
+    if not entries:
+        print("your fleet is empty")
+        print("  add one with: skysherpa fleet --add A20N --variant fenix-a320")
+        print("  browse with : skysherpa aircraft --class airliner")
+        return 0
+
+    if args.json:
+        payload = {
+            "count": len(entries),
+            "entries": [
+                {"icao": e.icao, "variant_id": e.variant_id, "label": e.label} for e in entries
+            ],
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    print(f"your fleet ({len(entries)})")
+    print(f"  {'ICAO':<5} {'TYPE':<28} {'PRODUCT':<30} {'SIM':<7} {'BLOCK':>9}")
+    total_range = 0
+    for entry in entries:
+        aircraft = catalog.get(entry.icao)
+        variant = catalog.variant(entry.variant_id)
+        if aircraft is None:
+            print(f"  {entry.icao:<5} {'unknown type':<28} {entry.variant_id:<30}")
+            continue
+        reference = 150 if aircraft.aircraft_class in ("general", "helicopter") else 500
+        minutes = aircraft.estimate_block_minutes(reference)
+        total_range = max(total_range, aircraft.range_nm)
+        print(
+            f"  {entry.icao:<5} {_truncate(aircraft.name, 28):<28} "
+            f"{_truncate(variant.name if variant else entry.variant_id, 30):<30} "
+            f"{(variant.sim if variant else '?'):<7} {minutes:>4,} min @ {reference}nm"
+        )
+    print("")
+    print(f"  longest range: {total_range:,} nm | remove with: skysherpa fleet --remove ICAO")
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -353,6 +554,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_route = sub.add_parser("parse-route", parents=[common], help="tokenise a filed route")
     p_route.add_argument("route")
     p_route.set_defaults(func=cmd_parse_route)
+
+    p_aircraft = sub.add_parser(
+        "aircraft", parents=[common], help="browse the aircraft catalogue"
+    )
+    p_aircraft.add_argument("icao", nargs="?", help="show one type in detail")
+    p_aircraft.add_argument("--class", dest="aircraft_class", choices=sorted(CLASSES))
+    p_aircraft.add_argument("--engine", choices=sorted(ENGINES))
+    p_aircraft.add_argument("--sim", choices=sorted(SIMS - {"any"}))
+    p_aircraft.add_argument("--freeware", action="store_true", default=None)
+    p_aircraft.add_argument("--search", help="match on ICAO, name, or manufacturer")
+    p_aircraft.add_argument("--max-runway", type=int, dest="max_runway", metavar="FT")
+    p_aircraft.add_argument("--limit", type=int, default=40, help="0 = all")
+    p_aircraft.add_argument("--json", action="store_true")
+    p_aircraft.set_defaults(func=cmd_aircraft)
+
+    p_fleet = sub.add_parser("fleet", parents=[common], help="manage your aircraft")
+    p_fleet.add_argument("--add", metavar="ICAO", help="add a type to your fleet")
+    p_fleet.add_argument("--variant", help="specific add-on (see `skysherpa aircraft ICAO`)")
+    p_fleet.add_argument("--label", default="", help="your own name for it")
+    p_fleet.add_argument("--remove", metavar="ICAO")
+    p_fleet.add_argument("--clear", action="store_true")
+    p_fleet.add_argument("--json", action="store_true")
+    p_fleet.set_defaults(func=cmd_fleet)
 
     sub.add_parser("version", parents=[common], help="print version").set_defaults(
         func=cmd_version

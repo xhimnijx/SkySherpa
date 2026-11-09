@@ -49,6 +49,9 @@ skysherpa = "skysherpa.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+skysherpa = ["data/*.csv", "schema.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Offline by default. `pytest -m network` (or `make test-live`) runs the live checks.

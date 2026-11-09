@@ -33,6 +33,7 @@ That is the whole product.
 | **Decide later** | `skysherpa best-time --from EGLL --to LEPA --next 5d` | The 90-minute departure window that maximises your evening, with a confidence ribbon |
 | **Decide broadly** | `skysherpa plan --aircraft B738 --block 2h --anywhere` | The Pareto front across your installed airports, not a single answer |
 | **Understand** | `skysherpa coverage --fir EGTT --next 7d` | A staffing heatmap you can plan a week around |
+| **Know your fleet** | `skysherpa aircraft A20N` / `skysherpa fleet --add A320` | 159 airframes and 195 add-ons, with the block times the dispatcher will use |
 | **Close the loop** | `skysherpa debrief` | Predicted vs. actual coverage; your taste model updates |
 
 Every recommendation carries its own receipts: predicted coverage along the route, the handoffs
@@ -46,12 +47,20 @@ counterfactuals ("leave 90 minutes later → +38 expected ATC minutes, −12% ar
 ```powershell
 .\scripts\dev.ps1 doctor     # health-check every upstream data source, with invariants
 .\scripts\dev.ps1 sniff      # live network read-out: traffic, staffing, coverage
+.\scripts\dev.ps1 aircraft   # 159 aircraft types and 195 add-on variants
+.\scripts\dev.ps1 fleet --add A320 --variant fenix-a320
 ```
 
 `doctor` is the thing you actually need for a 24/7 box: it distinguishes "VATSIM is down" from
 "your box is down" from "the API changed shape". `sniff` is the smallest honest slice of the
 product — it already joins live traffic to FIR boundaries and reports who is being controlled
 and who is on unicom.
+
+`aircraft` and `fleet` are the other half of the question. The catalogue ships with the repo
+instead of scanning your simulator: Marketplace and streamed installs leave nothing to scan,
+and a name without range and runway numbers cannot rule out an impossible flight. Each airframe
+carries the numbers a dispatcher needs; each product variant (Fenix A320, Asobo A320neo,
+FlyByWire A32NX) is a separate selectable entry — see [ADR-0008](docs/decisions.md).
 
 Everything else is specified in **[PLAN.md](PLAN.md)** and built in phases.
 
