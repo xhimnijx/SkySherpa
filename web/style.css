@@ -557,16 +557,111 @@ canvas {
 }
 
 @media (max-width: 1100px) {
-  main {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 380px;
+  /* The desktop layout relies on `main` being a fixed-height flex child so the three
+     panels can scroll independently. On a phone that same constraint squeezes the board
+     to a single row, so the page has to be allowed to grow and scroll as a document. */
+  body {
+    height: auto;
   }
+
+  header {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand status"
+      "tagline tagline";
+    row-gap: 4px;
+  }
+
+  .brand {
+    grid-area: brand;
+  }
+
+  .tagline {
+    grid-area: tagline;
+  }
+
+  .status {
+    grid-area: status;
+    font-size: 10px;
+    max-width: 46vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main {
+    flex: none;
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    overflow-x: hidden;
+  }
+
+  /* A canvas carries an intrinsic size from its width attribute, and a grid item's
+     automatic minimum size is that intrinsic width -- which made the whole page wider
+     than the phone. min-width: 0 lets the column actually shrink. */
+  .board,
+  .controls,
+  .map-wrap,
+  .ribbon-wrap {
+    min-width: 0;
+  }
+
+  #map,
+  #ribbon {
+    max-width: 100%;
+  }
+
+  /* The answer before the controls: a phone visitor wants the board, not a form. */
+  .board {
+    order: 1;
+  }
+
+  .map-wrap {
+    order: 2;
+  }
+
+  .controls {
+    order: 3;
+  }
+
   .controls {
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
+
   .board {
     border-right: 0;
-    max-height: 420px;
+    max-height: none;
+    min-width: 0;
+  }
+
+  .map-wrap {
+    min-height: 420px;
+    height: 62vh;
+  }
+
+  .row {
+    grid-template-columns: 20px minmax(0, 1fr);
+    grid-template-areas:
+      "rank pair"
+      "rank stats"
+      "rank why";
+  }
+
+  .stats {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+  }
+
+  .pair small,
+  .why {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .meta {
+    font-size: 10px;
   }
 }
