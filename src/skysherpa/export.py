@@ -12,6 +12,7 @@ Everything here is sized for a static host: roughly 1 MB gzipped, no database, n
 from __future__ import annotations
 
 import json
+import os
 import struct
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -391,15 +392,27 @@ def build_bundle(
 
     files: dict[str, int] = {}
 
+    def _atomic_write(path: Path, data: bytes) -> None:
+        """Write to a sibling temp file, then rename.
+
+        The publisher rewrites ~750 KB every fifteen minutes while browsers are reading
+        it. An in-place write can be observed half-finished, which shows up as a JSON
+        parse error or a truncated typed array -- an intermittent, unreproducible bug.
+        os.replace is atomic on the same filesystem, including Windows.
+        """
+        temp = path.with_name(f".{path.name}.tmp")
+        temp.write_bytes(data)
+        os.replace(temp, path)
+        files[str(path.relative_to(out))] = path.stat().st_size
+
     def write_json(name: str, payload: Any) -> None:
-        path = data_dir / name
-        path.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
-        files[f"data/{name}"] = path.stat().st_size
+        _atomic_write(
+            data_dir / name,
+            json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+        )
 
     def write_binary(name: str, payload: bytes) -> None:
-        path = data_dir / name
-        path.write_bytes(payload)
-        files[f"data/{name}"] = path.stat().st_size
+        _atomic_write(data_dir / name, payload)
 
     write_json("meta.json", meta)
     write_json("firs.json", [{"code": code} for code in fir_list])
@@ -426,8 +439,6 @@ def build_bundle(
             for asset in ("index.html", "app.js", "core.js", "style.css"):
                 source = web_dir / asset
                 if source.is_file():
-                    target = out / asset
-                    target.write_bytes(source.read_bytes())
-                    files[asset] = target.stat().st_size
+                    _atomic_write(out / asset, source.read_bytes())
 
     return BundleResult(out_dir=out, files=files)

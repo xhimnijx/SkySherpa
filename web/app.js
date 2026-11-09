@@ -260,11 +260,18 @@ function openTaste() {
 }
 
 async function loadBundle() {
-  const binary = async (name) => (await fetch(`data/${name}`)).arrayBuffer();
-  const json = async (name) => (await fetch(`data/${name}`)).json();
+  // meta.json is fetched with no-store, then every other file carries the generation
+  // timestamp as a query string. Without this a browser can serve yesterday's forecast
+  // from cache while the publisher is happily rewriting it every fifteen minutes.
+  const metaResponse = await fetch("data/meta.json", { cache: "no-store" });
+  if (!metaResponse.ok) throw new Error(`meta.json: HTTP ${metaResponse.status}`);
+  const meta = await metaResponse.json();
+  const version = encodeURIComponent(meta.generated_at || String(Date.now()));
 
-  const [meta, firs, airports, pairs, aircraft, polygons] = await Promise.all([
-    json("meta.json"),
+  const binary = async (name) => (await fetch(`data/${name}?v=${version}`)).arrayBuffer();
+  const json = async (name) => (await fetch(`data/${name}?v=${version}`)).json();
+
+  const [firs, airports, pairs, aircraft, polygons] = await Promise.all([
     json("firs.json"),
     json("airports.json"),
     json("pairs.json"),
@@ -456,6 +463,15 @@ function syncWhenSelect() {
 }
 
 function renderBoard(outcome, query) {
+  if (!planner.pairs.length) {
+    boardEl.innerHTML = `
+      <div class="empty fatal">
+        <b>No candidate routes yet.</b>
+        <p>The collector has seen aircraft, but no filed flight plans with a usable
+        origin and destination. Publish again in a few minutes.</p>
+      </div>`;
+    return;
+  }
   if (!outcome.results.length) {
     boardEl.innerHTML = `<div class="empty">No flights match. Widen the flight length or clear the airports.</div>`;
     return;
@@ -488,7 +504,7 @@ function renderBoard(outcome, query) {
     <div class="board-head">
       <span>${outcome.matched} flights · ${Math.max(0.1, outcome.elapsedMs).toFixed(1)} ms · departing ${formatZ(query.departAt)}</span>
       <span>${(PRESETS[outcome.preset] || PRESETS.airline).label}${taste.weights ? " · tuned" : ""}</span>
-    </div>${hint}${rows}`;
+    </div>${forecastWarning()}${hint}${rows}`;
 
   const useHint = boardEl.querySelector('[data-action="use"]');
   if (useHint) {
@@ -731,6 +747,29 @@ function writeHash(query) {
   }
 }
 
+function forecastWarning() {
+  if (!planner) return "";
+  const generated = new Date(planner.meta.generated_at);
+  const hours = (Date.now() - generated.getTime()) / 3600000;
+  if (!Number.isFinite(hours) || hours < 12) return "";
+  return `<div class="hint warn">This forecast is ${Math.round(hours)} h old. The publisher may be stopped, so the probabilities are stale.</div>`;
+}
+
+function showLoadError(error) {
+  statusEl.textContent = "forecast unavailable";
+  boardEl.innerHTML = `
+    <div class="empty fatal">
+      <b>Could not load the forecast.</b>
+      <p>${error.message}</p>
+      <p class="small">If this is a local install, run <code>skysherpa publish</code> first,
+      then reload. The trace is in the browser console.</p>
+      <button id="retryButton" type="button" class="primary">Retry</button>
+    </div>`;
+  const retry = document.getElementById("retryButton");
+  if (retry) retry.addEventListener("click", () => location.reload());
+  console.error(error);
+}
+
 // ---- boot ------------------------------------------------------------------
 
 async function boot() {
@@ -751,8 +790,7 @@ async function boot() {
       openTaste();
     }
   } catch (error) {
-    statusEl.textContent = `failed to load forecast: ${error.message}`;
-    console.error(error);
+    showLoadError(error);
     return;
   }
 

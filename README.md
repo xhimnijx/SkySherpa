@@ -96,6 +96,14 @@ forget. Each cycle takes about two seconds and rewrites the bundle atomically en
 a browser refresh picks up the new forecast. If the publisher stops, the site keeps
 working and says how old the forecast is — the correct failure mode.
 
+## What it looks like
+
+![SkySherpa: the ranked board, the airspace coverage map, and the route ribbon](docs/screenshot-desktop.png)
+
+On a phone the board comes first, then the map, then the controls:
+
+<img src="docs/screenshot-mobile.png" alt="SkySherpa on a phone" width="300" />
+
 ## Status
 
 **P0 — scaffold and plan.** What runs today, on stdlib only, no install:

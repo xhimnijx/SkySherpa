@@ -477,6 +477,45 @@ dialog input[type="search"] {
   font-weight: 600;
 }
 
+.hint.warn {
+  background: linear-gradient(90deg, #3a2a12, #241a0c);
+  color: #fcd9a3;
+  border-bottom-color: #5a4420;
+}
+
+.empty.fatal {
+  color: var(--text);
+}
+
+.empty.fatal b {
+  color: var(--thin);
+  font-size: 14px;
+}
+
+.empty.fatal p {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.empty.fatal .small {
+  font-size: 11px;
+  color: #5b738a;
+}
+
+.empty.fatal code {
+  background: #0f1c29;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+.empty.fatal button {
+  margin-top: 10px;
+  width: auto;
+  padding: 7px 16px;
+}
+
 .hint button {
   margin-left: auto;
   background: #17384f;

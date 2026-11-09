@@ -173,6 +173,20 @@ def test_polygons_are_usable_rings(bundle) -> None:
         assert polygon["pts"][0] == polygon["pts"][-1], "rings must be closed for canvas fills"
 
 
+def test_bundle_uses_atomic_writes(bundle) -> None:
+    """No temp files may survive, and every declared file must exist.
+
+    The publisher runs every fifteen minutes while browsers read the bundle, so files are
+    written beside their destination and renamed. A leftover temp file means that pattern
+    regressed.
+    """
+    out, meta = bundle
+    assert list((out / "data").glob(".*.tmp")) == []
+    for name in ("meta.json", "firs.json", "airports.json", "pairs.json", "aircraft.json"):
+        assert (out / "data" / name).is_file()
+    assert meta["pair_count"] >= 0
+
+
 def test_quantise_bounds() -> None:
     assert quantise(0.0) == 0
     assert quantise(1.0) == 255
