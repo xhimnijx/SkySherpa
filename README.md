@@ -124,6 +124,11 @@ forget. Each cycle takes about two seconds and rewrites the bundle atomically en
 a browser refresh picks up the new forecast. If the publisher stops, the site keeps
 working and says how old the forecast is — the correct failure mode.
 
+After upgrading the code, restart `ingest` and `publish --watch`. Both hold their Python
+modules in memory for the life of the process, so a change to the exporter, the model or
+the simulator does not take effect until they are restarted — the first publish after a
+change may still be running the previous build.
+
 ### Capacity
 
 `skysherpa rehearse` builds a synthetic history and times the pipeline, so you can find
