@@ -1,8 +1,31 @@
 # SkySherpa — Master Plan
 
-**Status:** P0 complete (scaffold + verified data sources). P1 is next.
+**Status:** built through P5. The only outstanding gate is the real-data backtest (§12),
+which is calendar-gated at 35 days of collection.
 **Owner:** Maxim Gil
-**Last verified against live data:** 2026-11-09, 21:49Z (Monday, peak-ish European evening)
+**Last verified against live data:** 2026-11-09, 23:10Z
+
+> **Reality check (2026-11-10).** This document was written before the build started. It
+> remains the reference for *why* the product exists and what it should become, but four
+> things changed in the making, and one thing is still missing.
+>
+> **What changed, each recorded as an ADR:**
+>
+> - The product is a **static site with the planning maths in the browser** (ADR-0009), not
+>   a local API server. The model still runs once, nightly; only its output ships.
+> - ATC is a **service stack** — delivery, ground, tower, approach, centre — with top-down
+>   nesting and phase-specific weights (ADR-0010), not one coverage number per airport.
+> - The forecast is **anchored to live staffing** for the near term, with a two-hour decay
+>   (ADR-0011). The feed answers "right now" better than any historical model can.
+> - The aircraft catalogue **ships with the repo** instead of scanning a simulator
+>   (ADR-0008).
+>
+> **Shipped on top of the plan:** fleet selection, style presets, the route ribbon, pairwise
+> taste learning, watchlist alerts, live anchoring, a readiness command (`skysherpa status`),
+> an honest cold-start warning, and a static bundle that publishes atomically.
+>
+> **Still missing:** §12's backtest on real data, and the sector-level precision that
+> depends on it.
 
 ---
 
