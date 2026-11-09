@@ -246,6 +246,8 @@ Three engines, one loop: **observe → forecast → dispatch**, then **fly → d
 - [docs/forecasting.md](docs/forecasting.md) — the coverage model, mathematically
 - [docs/dispatch.md](docs/dispatch.md) — utility function, search, explanations
 - [docs/decisions.md](docs/decisions.md) — ADRs for the choices that are hard to reverse
+- [docs/verification.md](docs/verification.md) — what has been proved end to end, and what it cannot prove
+- [docs/ideas.md](docs/ideas.md) — a controller-side dispatcher, parked until this goal is done
 
 ## Ground rules
 
