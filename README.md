@@ -66,17 +66,20 @@ the depth of history behind each number (56d, or "prior" when there is none), a 
 choropleth of where controllers are likely to be, a ribbon showing coverage along the
 selected route (including the airspace boundaries you will cross), and controls for
 departure time — including any date and time you like, since the forecast is a weekly
-template — flight length, airports, your fleet, and a style preset (airline ops, GA, or
-maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
-and the terminal score knows the difference between a delivery clearance and an approach
-clearence. All of it recalculates locally.
+template — a flight-time range (30 minutes to 24 hours), airports, your fleet, and a style
+preset (any flying, airline ops, GA, or maximum ATC). Until you choose, nothing is assumed:
+every airframe in the catalogue is a candidate and every route the network has flown is
+ranked. Each route is scored with whichever aircraft in your fleet suits it best — or, with
+no fleet chosen, with the airframe the network actually files on that city pair — and the
+terminal score knows the difference between a delivery clearance and an approach clearance.
+All of it recalculates locally.
 
 There is also a tuning mode: "Tune my taste" shows two flights and asks which you would
 rather fly. A few choices adjust the four utility weights toward what you actually value —
 regularised so five clicks cannot send the ranking somewhere silly — and the choices never
 leave your browser.
 
-And a watchlist: "Watch this window" snapshots your fleet, preset, filters and flight length,
+And a watchlist: "Watch this window" snapshots your fleet, preset, filters and flight-time range,
 then re-plans on load and every five minutes. When a flight crosses your ATC threshold the
 site raises a toast (and a desktop notification, if you allow it) with a "Show me" action.
 Alerts fire while the tab is open — a static site cannot push without a server, and adding

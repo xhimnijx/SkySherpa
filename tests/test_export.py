@@ -187,6 +187,19 @@ def test_bundle_uses_atomic_writes(bundle) -> None:
     assert meta["pair_count"] >= 0
 
 
+def test_pairs_carry_the_observed_airframe(bundle) -> None:
+    """The bundle tells the browser what the network actually flies on each city pair.
+
+    Without it, "any aircraft" had to guess from range and speed and produced a Twin Otter
+    for Heathrow-Frankfurt, then an F-16.
+    """
+    out, _meta = bundle
+    pairs = json.loads((out / "data" / "pairs.json").read_text(encoding="utf-8"))
+    assert pairs
+    assert all("ac" in pair for pair in pairs)
+    assert any(pair["ac"] for pair in pairs)
+
+
 def test_confidence_arrays_match_the_index(bundle) -> None:
     """One evidence-depth byte per FIR and per airport, so the UI can say how sure it is."""
     out, meta = bundle
