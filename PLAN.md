@@ -676,24 +676,26 @@ rating tool; anything that automates flying; anything that needs a cloud account
 
 ---
 
-## 18. Immediate next actions (P2, in order)
+## 18. What is left
 
-**Done:** store + schema, ingest loop, sessionisation with reconnect merging, flight
-lifecycle, rollups (presence matrix with materialised *absence*, route corpus, airport
-hours), the synthetic network simulator, the hierarchical coverage model, and a
-rolling-origin backtest that currently passes all four gates on synthetic data
-(skill 0.54, calibration error 0.036, AUC 0.97).
+**Done:** everything in §13 up to and including P5, with the deviations recorded at the top
+of this document — ingest, sessionisation, rollups with materialised absence, the
+hierarchical forecaster, out-of-sample calibration, the browser dispatcher, the static
+site, personalisation, and the operational tooling (`publish --watch`, `status`, `doctor`).
 
-Remaining:
+**Remaining, in order of value:**
 
-1. **Calibration**: the backtest shows a systematic ~0.1 under-prediction in the 35-70%
-   band. Fit the isotonic map on an earlier window and apply it to a later one, then
-   re-run the gates. This is the last piece of "calibrated, not confident".
-2. **Real-data backtest**: once the collector has ~3 weeks, run the same gates on the
-   real network. Expect worse numbers; record them honestly.
-3. Demand nowcast from filed intent (§9.4): declared arrivals per airport-hour.
-4. `skysherpa up`: supervisor (ingest + rollup + serve) with `/healthz`.
-5. Dispatcher (P3): candidate generation, utility, Pareto, explanations.
+1. **The real-data backtest.** `skysherpa status` reports how many days are missing (35 for
+   four rolling-origin folds). When it flips, run `skysherpa backtest` and publish the
+   numbers even if they are worse than the synthetic ones — that honesty is the product's
+   premise.
+2. **Sector-level precision.** Sector polygons (VATGlasses) would let the model distinguish
+   a combined approach/departure position from the real thing, and would make the ribbon
+   accurate inside large FIRs.
+3. **Per-result confidence in the UI.** The model knows `n_eff` for every cell; the site
+   shows a global "early days" note instead. Export the count and show it per result.
+4. **A second network.** The engine is not VATSIM-specific except for the feed adapter; the
+   same model would work for IVAO.
 
 ---
 
