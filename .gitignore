@@ -15,7 +15,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 build/
+# generated web bundles: `skysherpa publish` writes these from the database
 dist/
+dist-real/
 .venv/
 venv/
 .pytest_cache/
