@@ -33,13 +33,13 @@ if (hourArg) {
   departAt = new Date();
   departAt.setUTCHours(Number(hourArg.split("=")[1]), 0, 0, 0);
 }
-const fleet = fleetArg ? fleetArg.split("=")[1].split(",") : ["A20N", "B738", "DH8D"];
+const fleet = fleetArg ? fleetArg.split("=")[1].split(",") : null;
 const outcome = planner.plan({
   departAt,
-  blockMinutes: 150,
-  tolerance: 45,
+  blockMin: 90,
+  blockMax: 240,
   aircraft: fleet,
-  preset: presetArg ? presetArg.split("=")[1] : "airline",
+  preset: presetArg ? presetArg.split("=")[1] : "any",
   limit: 8,
 });
 

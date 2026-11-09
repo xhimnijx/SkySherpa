@@ -69,7 +69,7 @@ departure time — including any date and time you like, since the forecast is a
 template — flight length, airports, your fleet, and a style preset (airline ops, GA, or
 maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
 and the terminal score knows the difference between a delivery clearance and an approach
-clearance. All of it recalculates locally.
+clearence. All of it recalculates locally.
 
 There is also a tuning mode: "Tune my taste" shows two flights and asks which you would
 rather fly. A few choices adjust the four utility weights toward what you actually value —

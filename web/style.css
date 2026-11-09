@@ -130,6 +130,33 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+.range-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.range-line input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.range-tag {
+  width: 52px;
+  color: #5b738a;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.range-val {
+  width: 42px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .scale {
   display: flex;
   justify-content: space-between;

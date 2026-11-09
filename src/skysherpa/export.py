@@ -313,6 +313,23 @@ def build_bundle(
     # ---- city pairs --------------------------------------------------------
     pairs = []
     known = {airport["icao"]: airport for airport in airports}
+
+    # The airframe people actually fly on each city pair. "Any aircraft" should mean the
+    # fleet the network uses, not a guess about range envelopes: a heuristic picked a
+    # Twin Otter for Heathrow-Frankfurt because its range sat conveniently near twice the
+    # sector. This is the observation instead of the guess.
+    modal_aircraft: dict[tuple[str, str], tuple[str, int]] = {}
+    for row in db.query(
+        "SELECT dep_icao, arr_icao, aircraft_short, COUNT(*) AS n FROM flight "
+        "WHERE aircraft_short IS NOT NULL AND aircraft_short != '' "
+        "GROUP BY dep_icao, arr_icao, aircraft_short"
+    ):
+        key = (str(row["dep_icao"]), str(row["arr_icao"]))
+        count = int(row["n"])
+        current = modal_aircraft.get(key)
+        if current is None or count > current[1]:
+            modal_aircraft[key] = (str(row["aircraft_short"]), count)
+
     for row in db.query(
         "SELECT dep_icao, arr_icao, n_flights, med_block_min, distance_nm FROM pair_stat "
         "ORDER BY n_flights DESC LIMIT ?",
@@ -332,6 +349,7 @@ def build_bundle(
                 "n": int(row["n_flights"] or 0),
                 "m": int(row["med_block_min"]) if row["med_block_min"] is not None else None,
                 "nm": round(float(distance), 1),
+                "ac": modal_aircraft.get((dep, arr), ("", 0))[0],
             }
         )
 

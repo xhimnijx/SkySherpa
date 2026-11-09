@@ -236,17 +236,46 @@ def simulate_flights(
             on_block = off_block + timedelta(minutes=block_min)
             callsign = f"SIM{offset:02d}{index:02d}"
 
+            # Roughly what people fly on a sector this long, so the published bundle's
+            # "what does the network actually fly here" field has something to say.
+            if block_min <= 45:
+                aircraft_short, aircraft_full, alt, tas = rng.choice(
+                    [
+                        ("C172", "C172/L", 8000, 120),
+                        ("DH8D", "DH8D/M", 20000, 280),
+                        ("PA28", "PA28/L", 6000, 125),
+                    ]
+                )
+            elif block_min <= 130:
+                aircraft_short, aircraft_full, alt, tas = rng.choice(
+                    [
+                        ("DH8D", "DH8D/M", 20000, 280),
+                        ("E195", "E195/M", 33000, 440),
+                        ("A20N", "A20N/M-S", 35000, 450),
+                        ("AT76", "AT76/M", 18000, 275),
+                    ]
+                )
+            else:
+                aircraft_short, aircraft_full, alt, tas = rng.choice(
+                    [
+                        ("A20N", "A20N/M-S", 35000, 450),
+                        ("B738", "B738/M", 36000, 430),
+                        ("A359", "A359/H", 38000, 480),
+                        ("B77W", "B77W/H", 37000, 480),
+                    ]
+                )
+
             flight_id = db.start_flight(
                 callsign=callsign,
                 pseudo_id=identity.pseudonym(index),
                 departure=dep,
                 arrival=arr,
                 alternate="",
-                aircraft_short="A20N",
-                aircraft_full="A20N/M-S",
+                aircraft_short=aircraft_short,
+                aircraft_full=aircraft_full,
                 flight_rules="I",
-                cruise_alt_ft=35000,
-                cruise_tas_kt=450,
+                cruise_alt_ft=alt,
+                cruise_tas_kt=tas,
                 filed_deptime=f"{hour:02d}{rng.randint(0, 59):02d}",
                 filed_enroute_min=block_min,
                 filed_route=f"DCT {dep} DCT {arr}",

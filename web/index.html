@@ -36,9 +36,18 @@
         </div>
 
         <div class="group">
-          <label for="block">I have <output id="blockOut">2h30</output></label>
-          <input id="block" type="range" min="45" max="600" step="15" value="150" />
-          <div class="scale"><span>45m</span><span>5h</span><span>10h</span></div>
+          <label>Flight time <output id="blockOut">any length</output></label>
+          <div class="range-line">
+            <span class="range-tag">at least</span>
+            <input id="blockMin" type="range" min="30" max="1440" step="15" value="30" />
+            <span id="blockMinOut" class="range-val">30m</span>
+          </div>
+          <div class="range-line">
+            <span class="range-tag">at most</span>
+            <input id="blockMax" type="range" min="30" max="1440" step="15" value="1440" />
+            <span id="blockMaxOut" class="range-val">24h</span>
+          </div>
+          <div class="scale"><span>30m</span><span>12h</span><span>24h</span></div>
         </div>
 
         <div class="group">
@@ -57,6 +66,7 @@
         <div class="group">
           <label for="preset">Style</label>
           <select id="preset">
+            <option value="any" selected>Any flying — no assumptions</option>
             <option value="airline">Airline ops — full stacks, big airports</option>
             <option value="ga">GA / sightseeing — local fields, shorter hops</option>
             <option value="max">Maximum ATC — coverage above all</option>

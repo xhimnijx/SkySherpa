@@ -21,7 +21,10 @@ const controls = {
   when: document.getElementById("when"),
   whenPick: document.getElementById("whenPick"),
   whenHint: document.getElementById("whenHint"),
-  block: document.getElementById("block"),
+  blockMin: document.getElementById("blockMin"),
+  blockMax: document.getElementById("blockMax"),
+  blockMinOut: document.getElementById("blockMinOut"),
+  blockMaxOut: document.getElementById("blockMaxOut"),
   blockOut: document.getElementById("blockOut"),
   from: document.getElementById("from"),
   to: document.getElementById("to"),
@@ -67,19 +70,19 @@ function formatZ(date) {
 // ---- fleet ----------------------------------------------------------------
 
 const FLEET_KEY = "skysherpa.fleet";
-let fleet = ["A20N"];
+// Empty means "anything": the visitor has not told us what they fly, so nothing is assumed
+// and the best airframe is picked per route.
+let fleet = [];
 
 function loadFleet() {
   try {
     const raw = localStorage.getItem(FLEET_KEY);
-    if (!raw) return ["A20N"];
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    const valid = Array.isArray(parsed)
-      ? parsed.filter((code) => planner.aircraftByIcao.has(code))
-      : [];
-    return valid.length ? valid : ["A20N"];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((code) => planner.aircraftByIcao.has(code));
   } catch (error) {
-    return ["A20N"];
+    return [];
   }
 }
 
@@ -92,7 +95,11 @@ function saveFleet() {
 }
 
 function updateFleetLabel() {
-  controls.fleetCount.textContent = `(${fleet.length})`;
+  controls.fleetCount.textContent = fleet.length ? `(${fleet.length})` : "";
+  if (!fleet.length) {
+    controls.fleetButton.textContent = "Any aircraft";
+    return;
+  }
   if (fleet.length === 1) {
     const aircraft = planner.aircraftByIcao.get(fleet[0]);
     controls.fleetButton.textContent = aircraft ? `${fleet[0]} — ${aircraft.name}` : fleet[0];
@@ -126,7 +133,7 @@ function applyFleet() {
   const checked = [...controls.fleetList.querySelectorAll("input:checked")].map(
     (input) => input.value,
   );
-  if (checked.length) fleet = checked;
+  fleet = checked;
   saveFleet();
   updateFleetLabel();
   controls.fleetDialog.close();
@@ -149,7 +156,7 @@ function loadTaste() {
       taste.choices = parsed.choices;
       // Refit rather than trusting stored weights: if the learner improves, the user gets
       // the improvement instead of a stale vector.
-      taste.weights = fitPreferenceWeights(taste.choices, PRESETS.airline.weights);
+      taste.weights = fitPreferenceWeights(taste.choices, PRESETS.any.weights);
     }
   } catch (error) {
     /* corrupt or unavailable storage: fall back to the preset */
@@ -165,7 +172,7 @@ function saveTaste() {
 }
 
 function presetWeights() {
-  return (PRESETS[controls.preset.value] || PRESETS.airline).weights;
+  return (PRESETS[controls.preset.value] || PRESETS.any).weights;
 }
 
 function applyPresetToSliders() {
@@ -293,12 +300,42 @@ function saveWatch() {
   }
 }
 
+function formatDuration(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (!hours) return `${rest}m`;
+  return rest ? `${hours}h${String(rest).padStart(2, "0")}` : `${hours}h`;
+}
+
+// Two handles rather than one: "I have between two and four hours" is the question people
+// ask, and a single target forced a guess about how close counts as close enough.
+function updateBlockControls() {
+  let min = Number(controls.blockMin.value);
+  let max = Number(controls.blockMax.value);
+  if (min > max - 15) {
+    if (document.activeElement === controls.blockMin) {
+      min = Math.max(30, max - 15);
+      controls.blockMin.value = String(min);
+    } else {
+      max = Math.min(1440, min + 15);
+      controls.blockMax.value = String(max);
+    }
+  }
+  controls.blockMinOut.textContent = formatDuration(min);
+  controls.blockMaxOut.textContent = formatDuration(max);
+  const everything = min <= 30 && max >= 1440;
+  controls.blockOut.textContent = everything
+    ? "any length"
+    : `${formatDuration(min)} – ${formatDuration(max)}`;
+  return { min, max };
+}
+
 function watchSummary() {
-  const hours = Math.floor(watch.blockMinutes / 60);
-  const minutes = String(watch.blockMinutes % 60).padStart(2, "0");
+  const from = formatDuration(watch.blockMin);
+  const to = formatDuration(watch.blockMax);
   const scope =
     watch.from || watch.to ? `${watch.from || "anywhere"} → ${watch.to || "anywhere"}` : "anywhere";
-  return `Watching for >=${watch.threshold}% ATC · ${hours}h${minutes} · ${scope}`;
+  return `Watching for >=${watch.threshold}% ATC · ${from}–${to} · ${scope}`;
 }
 
 function updateWatchState() {
@@ -307,13 +344,15 @@ function updateWatchState() {
 }
 
 function armWatch(threshold) {
+  const window = updateBlockControls();
   watch = {
     threshold: Math.round(threshold),
-    blockMinutes: Number(controls.block.value),
+    blockMin: window.min,
+    blockMax: window.max,
     from: controls.from.value || null,
     to: controls.to.value || null,
     fleet: fleet.slice(),
-    preset: controls.preset.value || "airline",
+    preset: controls.preset.value || "any",
     weights: activeWeights() || null,
   };
   alerted.clear();
@@ -343,8 +382,8 @@ function disarmWatch() {
 function watchQuery() {
   return {
     departAt: departureTime(),
-    blockMinutes: watch.blockMinutes,
-    tolerance: Math.max(30, Math.round(watch.blockMinutes * 0.25)),
+    blockMin: watch.blockMin,
+    blockMax: watch.blockMax,
     from: watch.from,
     to: watch.to,
     aircraft: watch.fleet,
@@ -482,19 +521,19 @@ function departureTime() {
 
 function recompute() {
   if (!planner) return;
-  const block = Number(controls.block.value);
-  controls.blockOut.textContent = `${Math.floor(block / 60)}h${String(block % 60).padStart(2, "0")}`;
+  const window = updateBlockControls();
 
   const query = {
     departAt: departureTime(),
-    blockMinutes: block,
-    tolerance: Math.max(30, Math.round(block * 0.25)),
+    blockMin: window.min,
+    blockMax: window.max,
     from: controls.from.value || null,
     to: controls.to.value || null,
     aircraft: fleet,
     preset: controls.preset.value || "airline",
     weights: activeWeights(),
-    limit: 18,
+    // With nothing filtered, every candidate route is a real answer; the board scrolls.
+    limit: 40,
   };
 
   const outcome = planner.plan(query);
@@ -668,7 +707,7 @@ function renderBoard(outcome, query) {
   boardEl.innerHTML = `
     <div class="board-head">
       <span>${outcome.matched} flights · ${Math.max(0.1, outcome.elapsedMs).toFixed(1)} ms · departing ${formatZ(query.departAt)}</span>
-      <span>${(PRESETS[outcome.preset] || PRESETS.airline).label}${taste.weights ? " · tuned" : ""}</span>
+      <span>${(PRESETS[outcome.preset] || PRESETS.any).label}${taste.weights ? " · tuned" : ""}</span>
     </div>${forecastWarning()}${hint}${rows}`;
 
   const useHint = boardEl.querySelector('[data-action="use"]');
@@ -882,8 +921,18 @@ function updateStatus() {
 function readHash() {
   const params = new URLSearchParams(location.hash.replace(/^#/, ""));
   if (!params.toString()) return;
-  const block = params.get("block");
-  if (block) controls.block.value = block;
+  const blockMin = params.get("bmin");
+  const blockMax = params.get("bmax");
+  if (blockMin) controls.blockMin.value = blockMin;
+  if (blockMax) controls.blockMax.value = blockMax;
+  // Old links carried a single target; keep them working by widening to its tolerance.
+  const legacyBlock = params.get("block");
+  if (legacyBlock && !blockMin && !blockMax) {
+    const centre = Number(legacyBlock) || 150;
+    const half = Math.max(30, Math.round(centre * 0.25));
+    controls.blockMin.value = String(Math.max(30, centre - half));
+    controls.blockMax.value = String(Math.min(1440, centre + half));
+  }
   const from = params.get("from");
   if (from) controls.from.value = from;
   const to = params.get("to");
@@ -921,7 +970,8 @@ function writeHash(query) {
   if (query.from) params.set("from", query.from);
   if (query.to) params.set("to", query.to);
   params.set("preset", query.preset);
-  params.set("block", String(query.blockMinutes));
+  params.set("bmin", String(query.blockMin));
+  params.set("bmax", String(query.blockMax));
   if (fleet.length && fleet.length <= 12) params.set("fleet", fleet.join(","));
   if (suggestion) params.set("at", `${suggestion.toISOString().slice(0, 16)}Z`);
   const next = params.toString();
@@ -1008,7 +1058,7 @@ async function boot() {
     suggestionInfo = null;
     recompute();
   });
-  for (const key of ["block", "from", "to"]) {
+  for (const key of ["blockMin", "blockMax", "from", "to"]) {
     controls[key].addEventListener("input", recompute);
   }
   // Moving a weight slider is an explicit opinion for this session; it overrides what

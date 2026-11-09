@@ -25,7 +25,25 @@ export const ARRIVAL_WEIGHTS = { del: 0.0, gnd: 0.15, twr: 0.35, app: 0.5 };
 // Presets. `renormalise` divides the terminal score by the weight of the layers an
 // airport has ever staffed, which is right for GA (a grass strip should not be punished
 // for having no delivery position) and wrong for airline ops (depth is the point).
+// When the visitor has named no aircraft, these are the classes we assume they might fly.
+// Military and vintage types are deliberate choices -- a Concorde or an F-16 is not a
+// sensible default for "where should I fly", and both win any speed-based ranking outright.
+const ANY_CLASSES = new Set(["airliner", "regional", "general", "business", "helicopter"]);
+//: Beyond this, extra speed stops earning credit: a 520 kt business jet is not a better
+//: answer than a 450 kt airliner merely because it is faster.
+const COMFORTABLE_TAS = 430;
+
 export const PRESETS = {
+  // The default. A first-time visitor has told us nothing yet, so nothing is assumed:
+  // every airframe in the catalogue, airline-style service weights, no class filter.
+  any: {
+    label: "Any flying",
+    weights: { atc: 0.5, duration: 0.2, fit: 0.15, popularity: 0.15 },
+    departure: DEPARTURE_WEIGHTS,
+    arrival: ARRIVAL_WEIGHTS,
+    renormalise: false,
+    classes: null,
+  },
   airline: {
     label: "Airline ops",
     weights: { atc: 0.6, duration: 0.2, fit: 0.1, popularity: 0.1 },
@@ -432,33 +450,37 @@ export function createPlanner(bundle) {
     };
   }
 
-  function score(pair, departAt, aircraftSpec, weights, preset, blockTarget, tolerance) {
+  function score(pair, departAt, aircraftSpec, weights, preset, durationWindow, fastestKt) {
     const departure = airportByIcao.get(pair.d);
     const arrival = airportByIcao.get(pair.a);
     if (!departure || !arrival) return null;
 
     const profile = routeProfile(departure, arrival, departAt, aircraftSpec, preset);
     if (profile.distance > aircraftSpec.range_nm * 0.92) return null;
-    if (blockTarget) {
-      if (Math.abs(profile.block - blockTarget) > tolerance) return null;
-    }
+    // A duration window, not a target: "I have between two and four hours" is the question
+    // people actually ask. Inside the window every flight is equally acceptable, which is
+    // why durationFit becomes a filter rather than a preference.
+    if (durationWindow && (profile.block < durationWindow.min || profile.block > durationWindow.max)) return null;
 
     const atc = 0.55 * profile.enroute + 0.2 * profile.departureP + 0.25 * profile.arrivalP;
-    const durationFit = blockTarget
-      ? Math.max(0, 1 - Math.abs(profile.block - blockTarget) / Math.max(1, tolerance))
-      : 0.5;
+    const durationFit = durationWindow ? 1 : 0.5;
     const popularity = Math.min(1, Math.log1p(pair.n) / Math.log(50));
 
     // Using the right aeroplane for the sector. A 777 on a 900 nm hop is technically
     // legal and practically absurd; a light aircraft at 90% of its range is the opposite
-    // mistake. Both are penalised, the middle of the envelope is not.
+    // mistake. Both are penalised, the middle of the envelope is not. Speed matters too:
+    // when the fleet is "anything", the range term alone picked a Twin Otter for
+    // Heathrow-Frankfurt because its range sits near twice the sector.
     const utilisation = profile.distance / Math.max(1, aircraftSpec.range_nm);
-    const aircraftFit =
+    const rangeFit =
       utilisation < 0.2
         ? Math.max(0, utilisation / 0.2)
         : utilisation > 0.75
           ? Math.max(0, (1 - utilisation) / 0.25)
           : 1;
+    const fastest = Math.min(fastestKt || COMFORTABLE_TAS, COMFORTABLE_TAS) || 1;
+    const speedFit = Math.min(1, (aircraftSpec.tas || 0) / fastest);
+    const aircraftFit = rangeFit * (0.25 + 0.75 * speedFit);
 
     const utility =
       weights.atc * atc +
@@ -494,44 +516,107 @@ export function createPlanner(bundle) {
 
   function plan(query) {
     const started = performance.now();
-    const preset = PRESETS[query.preset] || PRESETS.airline;
+    const preset = PRESETS[query.preset] || PRESETS.any;
     const weights = { ...preset.weights, ...(query.weights || {}) };
-    const requested = Array.isArray(query.aircraft) ? query.aircraft : [query.aircraft];
+
+    // No aircraft named means "anything goes": the visitor has not told us what they fly,
+    // so every type in the catalogue is a candidate and the best one is picked per route.
+    const requested =
+      query.aircraft == null
+        ? []
+        : Array.isArray(query.aircraft)
+          ? query.aircraft
+          : [query.aircraft];
     let specs = requested
       .map((code) => aircraftByIcao.get(code))
       .filter((spec) => spec !== undefined);
+    const flyingAnything = specs.length === 0;
+    if (flyingAnything) specs = aircraft.filter((spec) => ANY_CLASSES.has(spec.class));
     // A preset narrows the fleet to what the style implies, but never to nothing: if the
     // user owns only airliners, GA mode still has to produce an answer.
     if (preset.classes) {
       const suited = specs.filter((spec) => preset.classes.includes(spec.class));
       if (suited.length) specs = suited;
     }
-    if (!specs.length) specs = [aircraftByIcao.get("A20N")].filter(Boolean);
     const departAt = query.departAt instanceof Date ? query.departAt : new Date(query.departAt);
+
+    // Duration range. The old single target is still accepted so saved permalinks keep
+    // working; new callers pass blockMin/blockMax.
+    let durationWindow = null;
+    if (Number.isFinite(query.blockMin) || Number.isFinite(query.blockMax)) {
+      durationWindow = { min: query.blockMin ?? 0, max: query.blockMax ?? 24 * 60 };
+    } else if (Number.isFinite(query.blockMinutes)) {
+      const tolerance = query.tolerance ?? 45;
+      durationWindow = { min: query.blockMinutes - tolerance, max: query.blockMinutes + tolerance };
+    }
 
     const results = [];
     let evaluated = 0;
+
+    // When the visitor has named no aircraft, scoring every airframe against every route
+    // is 195 x 1300 profiles on a real bundle -- half a second per plan, five for the
+    // quiet-hour scan. Instead consider the handful whose range is closest to twice the
+    // sector (where rangeFit peaks) plus the fastest few, so a jet is always on the table
+    // for a long-ish hop instead of losing to a turboprop on range alone.
+    function candidates(distance, take) {
+      if (!flyingAnything) return specs;
+      const eligible = specs.filter((spec) => spec.range_nm * 0.92 >= distance);
+      if (!eligible.length) return [];
+      const ideal = Math.max(distance * 2, 60);
+      const byFit = [...eligible]
+        .sort((a, b) => Math.abs(a.range_nm - ideal) - Math.abs(b.range_nm - ideal))
+        .slice(0, Math.max(1, take - 3));
+      const bySpeed = [...eligible]
+        .sort((a, b) => (b.tas || 0) - (a.tas || 0))
+        .slice(0, 3);
+      const seen = new Set();
+      const shortlist = [];
+      for (const spec of [...byFit, ...bySpeed]) {
+        if (seen.has(spec.icao)) continue;
+        seen.add(spec.icao);
+        shortlist.push(spec);
+      }
+      return shortlist;
+    }
+
     for (const pair of pairs) {
       if (query.from && pair.d !== query.from) continue;
       if (query.to && pair.a !== query.to) continue;
       evaluated += 1;
 
-      // One route, every aircraft the user owns: keep the best airframe for it.
+      const departure = airportByIcao.get(pair.d);
+      const arrival = airportByIcao.get(pair.a);
+      if (!departure || !arrival) continue;
+      const distance = haversineNm(
+        [departure.lat, departure.lon],
+        [arrival.lat, arrival.lon],
+      );
+
+      // One route, the best airframe for it. With no fleet named, prefer what the network
+      // actually flies on that pair, and fall back to the range/speed heuristic only when
+      // the pair has never been observed with a usable type.
       let best = null;
-      for (const spec of specs) {
-        const candidate = score(
-          pair,
-          departAt,
-          spec,
-          weights,
-          preset,
-          query.blockMinutes,
-          query.tolerance ?? 45,
-        );
+      const observed = flyingAnything && pair.ac ? aircraftByIcao.get(pair.ac) : undefined;
+      const shortlist = observed
+        ? [observed]
+        : candidates(distance, flyingAnything ? 6 : specs.length);
+      const fastestKt = shortlist.reduce(
+        (fastest, spec) => Math.max(fastest, spec.tas || 0),
+        0,
+      );
+      for (const spec of shortlist) {
+        const candidate = score(pair, departAt, spec, weights, preset, durationWindow, fastestKt);
         if (candidate && (!best || candidate.utility > best.utility)) best = candidate;
       }
+      if (!best && flyingAnything && durationWindow) {
+        // The shortlist all missed the time window; widen before giving up.
+        for (const spec of candidates(distance, 24)) {
+          const candidate = score(pair, departAt, spec, weights, preset, durationWindow, fastestKt);
+          if (candidate && (!best || candidate.utility > best.utility)) best = candidate;
+        }
+      }
       if (best) {
-        best.presetKey = query.preset || "airline";
+        best.presetKey = query.preset || "any";
         results.push(best);
       }
     }
@@ -541,8 +626,8 @@ export function createPlanner(bundle) {
       results: results.slice(0, limit),
       evaluated,
       matched: results.length,
-      aircraft: specs.map((spec) => spec.icao).join(", "),
-      preset: query.preset || "airline",
+      aircraft: flyingAnything ? "any" : specs.map((spec) => spec.icao).join(", "),
+      preset: query.preset || "any",
       elapsedMs: performance.now() - started,
     };
   }
