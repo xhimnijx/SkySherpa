@@ -74,6 +74,12 @@ rather fly. A few choices adjust the four utility weights toward what you actual
 regularised so five clicks cannot send the ranking somewhere silly — and the choices never
 leave your browser.
 
+And a watchlist: "Watch this window" snapshots your fleet, preset, filters and flight length,
+then re-plans on load and every five minutes. When a flight crosses your ATC threshold the
+site raises a toast (and a desktop notification, if you allow it) with a "Show me" action.
+Alerts fire while the tab is open — a static site cannot push without a server, and adding
+one would undo the reason this is a static site.
+
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
 ## Running it for real

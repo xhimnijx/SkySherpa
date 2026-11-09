@@ -69,6 +69,13 @@
 
         <button id="refresh" class="refresh">Recompute</button>
         <button id="tasteButton" type="button" class="ghost taste">Tune my taste</button>
+
+        <div class="group watch">
+          <label for="watch">Alert me when ATC is at least <output id="watchOut">70</output>%</label>
+          <input id="watch" type="range" min="40" max="95" step="5" value="70" />
+          <button id="watchButton" type="button" class="ghost">Watch this window</button>
+          <div id="watchState" class="watch-state"></div>
+        </div>
         <p class="footnote">
           Planning runs in your browser. Tower and approach are weighted highest,
           ground next, delivery least; a centre working top-down counts for every layer
@@ -93,6 +100,8 @@
     </main>
 
     <script type="module" src="app.js"></script>
+
+    <div id="toast" class="toast" role="status"></div>
 
     <dialog id="fleetDialog">
       <h2>Your fleet</h2>

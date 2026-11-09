@@ -42,6 +42,11 @@ const controls = {
   tasteProgress: document.getElementById("tasteProgress"),
   tasteReset: document.getElementById("tasteReset"),
   tasteClose: document.getElementById("tasteClose"),
+  watch: document.getElementById("watch"),
+  watchOut: document.getElementById("watchOut"),
+  watchButton: document.getElementById("watchButton"),
+  watchState: document.getElementById("watchState"),
+  toast: document.getElementById("toast"),
 };
 
 let planner = null;
@@ -51,6 +56,7 @@ let live = null;
 let suggestion = null; // an explicit departure time the visitor asked to preview
 let suggestionInfo = null; // the best upcoming window, only when "now" is quiet
 let pendingDuel = false; // deep link asked for the taste dialog once a plan exists
+let pendingWatch = 0; // deep link asked to arm a watch once a plan exists
 
 function formatZ(date) {
   return `${date.toISOString().slice(11, 16)}Z`;
@@ -257,6 +263,146 @@ function openTaste() {
   }
   renderDuel();
   controls.tasteDialog.showModal();
+}
+
+// ---- watch ----------------------------------------------------------------
+
+const WATCH_KEY = "skysherpa.watch";
+let watch = null;
+const alerted = new Set();
+
+function loadWatch() {
+  try {
+    const raw = localStorage.getItem(WATCH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed.threshold === "number" ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function saveWatch() {
+  try {
+    if (watch) localStorage.setItem(WATCH_KEY, JSON.stringify(watch));
+    else localStorage.removeItem(WATCH_KEY);
+  } catch (error) {
+    /* private mode */
+  }
+}
+
+function watchSummary() {
+  const hours = Math.floor(watch.blockMinutes / 60);
+  const minutes = String(watch.blockMinutes % 60).padStart(2, "0");
+  const scope =
+    watch.from || watch.to ? `${watch.from || "anywhere"} → ${watch.to || "anywhere"}` : "anywhere";
+  return `Watching for >=${watch.threshold}% ATC · ${hours}h${minutes} · ${scope}`;
+}
+
+function updateWatchState() {
+  controls.watchState.textContent = watch ? watchSummary() : "";
+  controls.watchButton.textContent = watch ? "Stop watching" : "Watch this window";
+}
+
+function armWatch(threshold) {
+  watch = {
+    threshold: Math.round(threshold),
+    blockMinutes: Number(controls.block.value),
+    from: controls.from.value || null,
+    to: controls.to.value || null,
+    fleet: fleet.slice(),
+    preset: controls.preset.value || "airline",
+    weights: activeWeights() || null,
+  };
+  alerted.clear();
+  saveWatch();
+  controls.watch.value = String(watch.threshold);
+  controls.watchOut.textContent = String(watch.threshold);
+  updateWatchState();
+  // Permission must be requested from a user gesture; a deep link simply gets the
+  // in-page toast instead.
+  if ("Notification" in window && Notification.permission === "default") {
+    try {
+      Notification.requestPermission().catch(() => {});
+    } catch (error) {
+      /* not available */
+    }
+  }
+  checkWatch();
+}
+
+function disarmWatch() {
+  watch = null;
+  saveWatch();
+  updateWatchState();
+  controls.toast.classList.remove("show");
+}
+
+function watchQuery() {
+  return {
+    departAt: departureTime(),
+    blockMinutes: watch.blockMinutes,
+    tolerance: Math.max(30, Math.round(watch.blockMinutes * 0.25)),
+    from: watch.from,
+    to: watch.to,
+    aircraft: watch.fleet,
+    preset: watch.preset,
+    weights: watch.weights || undefined,
+    limit: 6,
+  };
+}
+
+function checkWatch() {
+  if (!watch || !planner) return;
+  const outcome = planner.plan(watchQuery());
+  const hit = outcome.results.find((result) => result.atc * 100 >= watch.threshold);
+  if (!hit) return;
+  const hourKey = new Date().toISOString().slice(0, 13);
+  const key = `${hit.dep}-${hit.arr}-${hit.aircraft}-${hourKey}`;
+  if (alerted.has(key)) return;
+  alerted.add(key);
+  showToast(hit);
+}
+
+function showToast(hit) {
+  const hours = Math.floor(hit.block / 60);
+  const minutes = String(hit.block % 60).padStart(2, "0");
+  controls.toast.innerHTML = `
+    <b>${hit.dep} → ${hit.arr}</b> is at ${Math.round(hit.atc * 100)}% ATC
+    <span class="toast-meta">${hit.aircraft} · ${hours}h${minutes}</span>
+    <div class="toast-actions">
+      <button id="toastGo" type="button" class="primary">Show me</button>
+      <button id="toastClose" type="button" class="ghost">Dismiss</button>
+    </div>`;
+  controls.toast.classList.add("show");
+
+  const go = document.getElementById("toastGo");
+  if (go) {
+    go.addEventListener("click", () => {
+      controls.from.value = hit.dep;
+      controls.to.value = hit.arr;
+      suggestion = null;
+      controls.toast.classList.remove("show");
+      recompute();
+    });
+  }
+  const close = document.getElementById("toastClose");
+  if (close) close.addEventListener("click", () => controls.toast.classList.remove("show"));
+
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("SkySherpa", {
+        body: `${hit.dep} → ${hit.arr} · ${Math.round(hit.atc * 100)}% ATC · ${hours}h${minutes}`,
+      });
+    } catch (error) {
+      /* some browsers require a service worker for notifications */
+    }
+  }
+}
+
+function toggleWatch() {
+  if (watch) disarmWatch();
+  else armWatch(Number(controls.watch.value));
 }
 
 async function loadBundle() {
@@ -729,6 +875,8 @@ function readHash() {
     controls.fleetDialog.showModal();
   }
   if (params.get("duel") === "1") pendingDuel = true;
+  const watchParam = params.get("watch");
+  if (watchParam) pendingWatch = Number(watchParam) || 0;
 }
 
 function writeHash(query) {
@@ -781,6 +929,10 @@ async function boot() {
     updateFleetLabel();
     loadTaste();
     applyPresetToSliders();
+    watch = loadWatch();
+    controls.watch.value = String(watch ? watch.threshold : 70);
+    controls.watchOut.textContent = controls.watch.value;
+    updateWatchState();
     controls.when.value = "now";
     readHash();
     updateStatus();
@@ -788,6 +940,11 @@ async function boot() {
     if (pendingDuel) {
       pendingDuel = false;
       openTaste();
+    }
+    if (pendingWatch) {
+      const threshold = pendingWatch;
+      pendingWatch = 0;
+      armWatch(threshold);
     }
   } catch (error) {
     showLoadError(error);
@@ -829,6 +986,11 @@ async function boot() {
   });
   controls.duelA.addEventListener("click", () => recordChoice("a"));
   controls.duelB.addEventListener("click", () => recordChoice("b"));
+  controls.watchButton.addEventListener("click", toggleWatch);
+  controls.watch.addEventListener("input", () => {
+    controls.watchOut.textContent = controls.watch.value;
+  });
+  setInterval(checkWatch, 300000);
   controls.fleetButton.addEventListener("click", openFleet);
   controls.fleetApply.addEventListener("click", applyFleet);
   controls.fleetCancel.addEventListener("click", () => controls.fleetDialog.close());
