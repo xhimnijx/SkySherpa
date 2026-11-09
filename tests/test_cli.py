@@ -43,6 +43,39 @@ def test_init_creates_directories(tmp_path: Path, capsys) -> None:
     assert "ready" in capsys.readouterr().out
 
 
+def test_status_requires_a_database(tmp_path: Path, capsys) -> None:
+    assert main(["status", "--data-dir", str(tmp_path)]) == 1
+    assert "no database" in capsys.readouterr().err
+
+
+def test_status_reports_readiness(tmp_path: Path, capsys) -> None:
+    from skysherpa.store import Database
+
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    database.initialize()
+    database.close()
+
+    assert main(["status", "--data-dir", str(tmp_path), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["days_observed"] == 0
+    assert payload["city_pairs"] == 0
+    names = [item["name"] for item in payload["readiness"]]
+    assert names == ["planning", "forecast", "backtest", "calibration"]
+    assert all(not item["ready"] for item in payload["readiness"])
+    assert payload["readiness"][2]["days_remaining"] == 35
+
+
+def test_status_prints_the_blocking_items(tmp_path: Path, capsys) -> None:
+    from skysherpa.store import Database
+
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    database.initialize()
+    database.close()
+
+    assert main(["status", "--data-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "readiness" in out
+    assert "waiting on" in out
 def test_unknown_command_exits_nonzero() -> None:
     try:
         main(["nonsense"])

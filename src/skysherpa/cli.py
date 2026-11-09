@@ -876,6 +876,78 @@ def cmd_publish(args: argparse.Namespace) -> int:
             return 0
 
 
+def cmd_status(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    try:
+        database = _open_db(settings)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    stats = database.stats()
+    matrix = PresenceMatrix.from_db(database)
+    days = len({day for rows in matrix.days.values() for day, _, _ in rows})
+    observations = matrix.observations()
+    pairs = int(database.scalar("SELECT COUNT(*) FROM pair_stat") or 0)
+    first = stats["first_poll"].strftime("%Y-%m-%d") if stats["first_poll"] else "-"
+    last = stats["last_poll"].strftime("%Y-%m-%d") if stats["last_poll"] else "-"
+
+    checks = [
+        ("planning", pairs > 0, f"{pairs:,} city pairs", 0),
+        ("forecast", days >= 14, f"{days} day(s) of presence", max(0, 14 - days)),
+        ("backtest", days >= 35, f"{days} day(s) of presence", max(0, 35 - days)),
+        ("calibration", days >= 14, f"{days} day(s) for a holdout", max(0, 14 - days)),
+    ]
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "database": stats["path"],
+                    "bytes": stats["bytes"],
+                    "first_poll": first,
+                    "last_poll": last,
+                    "snapshots": stats["snapshots"],
+                    "gaps": stats["gaps"],
+                    "positions": stats["positions"],
+                    "atc_hours": round(stats["atc_hours"], 2),
+                    "flights": stats["flights"],
+                    "presence_slots": observations,
+                    "days_observed": days,
+                    "city_pairs": pairs,
+                    "readiness": [
+                        {"name": name, "ready": ready, "detail": detail, "days_remaining": wait}
+                        for name, ready, detail, wait in checks
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    print(f"database   {stats['path']}")
+    print(f"           {stats['bytes'] / 1_048_576:.1f} MB | {stats['snapshots']:,} snapshots | "
+          f"{stats['gaps']:,} gaps")
+    print(f"history    {first} to {last} ({stats['span_hours']:.1f} h)")
+    print(f"observed   {stats['positions']:,} positions | {stats['atc_hours']:.0f} h of ATC | "
+          f"{stats['flights']:,} flights")
+    print(f"matrix     {observations:,} presence slots over {days} day(s)")
+    print("")
+    print("readiness")
+    for name, ready, detail, wait in checks:
+        marker = "[x]" if ready else "[ ]"
+        suffix = "" if ready else f"  (needs {wait} more day{'s' if wait != 1 else ''})"
+        print(f"  {marker} {name:<12} {detail}{suffix}")
+    print("")
+    blocking = [name for name, ready, _, _ in checks if not ready]
+    if blocking:
+        print(f"  next: keep the collector running; waiting on {', '.join(blocking)}")
+    else:
+        print("  next: ready to backtest and calibrate on real data")
+    database.close()
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -956,6 +1028,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_db = sub.add_parser("db", parents=[common], help="database status")
     p_db.add_argument("--json", action="store_true")
     p_db.set_defaults(func=cmd_db)
+
+    p_status = sub.add_parser(
+        "status", parents=[common], help="readiness: history, matrix, and what still blocks"
+    )
+    p_status.add_argument("--json", action="store_true")
+    p_status.set_defaults(func=cmd_status)
 
     p_rollup = sub.add_parser(
         "rollup", parents=[common], help="rebuild presence and route aggregates"

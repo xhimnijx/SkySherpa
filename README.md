@@ -95,6 +95,9 @@ Three processes, and only the first needs to be always-on:
 
 # 3. serve the static bundle
 python -m http.server 8099 --directory dist
+
+# any time: is the history deep enough to trust the forecast yet?
+.\scripts\dev.ps1 status
 ```
 
 `publish` now rebuilds the aggregates itself, so there is no separate `rollup` step to
