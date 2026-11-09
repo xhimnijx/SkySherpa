@@ -948,6 +948,22 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rehearse(args: argparse.Namespace) -> int:
+    from .rehearse import default_reference, run_rehearsal
+
+    reference = default_reference()
+    report = run_rehearsal(
+        days=args.days,
+        airports=args.airports,
+        flights_per_day=args.flights_per_day,
+        seed=args.seed,
+        reference=reference,
+        out_dir=Path(args.out) if args.out else None,
+    )
+    print(report.summary())
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -1034,6 +1050,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_status.add_argument("--json", action="store_true")
     p_status.set_defaults(func=cmd_status)
+
+    p_rehearse = sub.add_parser(
+        "rehearse", parents=[common], help="time the pipeline against a synthetic long history"
+    )
+    p_rehearse.add_argument("--days", type=int, default=120)
+    p_rehearse.add_argument("--airports", type=int, default=40)
+    p_rehearse.add_argument("--flights-per-day", type=int, default=150)
+    p_rehearse.add_argument("--seed", type=int, default=7)
+    p_rehearse.add_argument("--out", help="keep the rehearsal database here")
+    p_rehearse.set_defaults(func=cmd_rehearse)
 
     p_rollup = sub.add_parser(
         "rollup", parents=[common], help="rebuild presence and route aggregates"

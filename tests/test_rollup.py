@@ -46,6 +46,37 @@ def test_rollup_records_online_and_offline(simulated) -> None:
     assert offline > online, "most observed slots should be absence, not presence"
 
 
+def test_first_rebuild_fills_the_whole_window(simulated) -> None:
+    """The incremental path must not apply to a database that has no older rows.
+
+    When refresh_days was introduced, a fresh database rebuilt only the trailing three
+    days and the matrix silently lost three weeks of history -- every older slot read as
+    "never observed".
+    """
+    database, _, _, _ = simulated
+    days = int(database.scalar("SELECT COUNT(DISTINCT day) FROM position_slot") or 0)
+    assert days >= 20
+
+
+def test_rebuild_is_idempotent_and_keeps_older_rows(simulated) -> None:
+    database, _, _, _ = simulated
+    before = int(database.scalar("SELECT COUNT(*) FROM position_slot") or 0)
+    assert before > 0
+
+    rebuild_slots(database)
+    assert int(database.scalar("SELECT COUNT(*) FROM position_slot") or 0) == before
+
+    rebuild_slots(database)
+    assert int(database.scalar("SELECT COUNT(*) FROM position_slot") or 0) == before
+
+
+def test_incremental_rebuild_returns_the_table_total(simulated) -> None:
+    """The return value is what `rollup` prints; it must describe the matrix, not the batch."""
+    database, _, _, _ = simulated
+    total = int(database.scalar("SELECT COUNT(*) FROM position_slot") or 0)
+    assert rebuild_slots(database) == total
+
+
 def test_rollup_covers_every_position_and_day(simulated) -> None:
     database, network, _, _ = simulated
     positions = database.scalar("SELECT COUNT(DISTINCT position_key) FROM position_slot")

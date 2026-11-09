@@ -46,6 +46,18 @@ ONLINE_THRESHOLD_MIN = 7.5
 #: How far back the materialised matrix goes. Older slots are pruned so the table stays
 #: laptop-sized; the raw sessions are still in the database if we ever need them.
 DEFAULT_WINDOW_DAYS = 120
+#: How many trailing days a rebuild recomputes. Only the tail of history can change, and a
+#: 120-day matrix at network scale is over a million rows: rewriting it on every publish is
+#: pure churn.
+DEFAULT_REFRESH_DAYS = 3
+#: Rows per insert statement. The first implementation accumulated the whole matrix in one
+#: list, which is a laptop-sized memory spike for no benefit.
+INSERT_BATCH = 20_000
+EMPTY_SET: frozenset[str] = frozenset()
+SLOT_INSERT = (
+    "INSERT OR REPLACE INTO position_slot (position_key, day, slot, online, n_samples) "
+    "VALUES (?,?,?,?,?)"
+)
 
 
 @dataclass(slots=True)
@@ -69,8 +81,23 @@ def _slot_start(day: date, slot: int) -> datetime:
     return datetime.combine(day, time(hour=slot // 4, minute=(slot % 4) * 15), tzinfo=UTC)
 
 
-def rebuild_slots(db: Database, *, window_days: int = DEFAULT_WINDOW_DAYS) -> int:
-    """Rebuild the presence matrix, including the slots where nothing was online."""
+def rebuild_slots(
+    db: Database,
+    *,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    refresh_days: int = DEFAULT_REFRESH_DAYS,
+) -> int:
+    """Rebuild the presence matrix, including the slots where nothing was online.
+
+    History is immutable, so only the last ``refresh_days`` are recomputed. A 120-day
+    matrix at network scale is over a million rows; rewriting all of them on every
+    fifteen-minute publish cost 14 seconds of pure churn in the rehearsal and produced the
+    same answer it produced the time before. ``refresh_days >= window_days`` forces the
+    full path, which is what a first run and the tests use.
+
+    Rows are inserted in batches rather than accumulated into one list: the list version
+    held every row at once, which is a laptop-sized memory spike for no reason.
+    """
     # 1. When were we actually watching?
     polls: Counter[tuple[date, int]] = Counter()
     for row in db.query("SELECT ts FROM snapshot_stat WHERE accepted = 1"):
@@ -102,6 +129,11 @@ def rebuild_slots(db: Database, *, window_days: int = DEFAULT_WINDOW_DAYS) -> in
                 minutes[key] += overlap
             cursor = following
 
+    online_by_slot: dict[tuple[date, int], set[str]] = defaultdict(set)
+    for (position, day, slot), total in minutes.items():
+        if total >= ONLINE_THRESHOLD_MIN:
+            online_by_slot[(day, slot)].add(position)
+
     # 3. Which positions existed when? A position that first appeared yesterday was not
     #    "offline" for the previous three months; it did not exist.
     lifetimes: dict[str, datetime] = {}
@@ -110,24 +142,47 @@ def rebuild_slots(db: Database, *, window_days: int = DEFAULT_WINDOW_DAYS) -> in
         if first_seen is not None:
             lifetimes[str(row["position_key"])] = first_seen
 
-    payload: list[tuple[str, str, int, int, int]] = []
+    full = refresh_days >= window_days
+    recent_from = latest - timedelta(days=max(0, refresh_days - 1))
+    if not full:
+        # A database with nothing older than the refresh window has to be built from
+        # scratch; otherwise the first run after this optimisation writes only three days
+        # and the matrix silently loses its history.
+        older = int(
+            db.scalar(
+                "SELECT COUNT(*) FROM position_slot WHERE day < ?", (recent_from.isoformat(),)
+            )
+            or 0
+        )
+        full = older == 0
+    db.execute("DELETE FROM position_slot WHERE day < ?", (cutoff.isoformat(),))
+    if full:
+        db.execute("DELETE FROM position_slot")
+    else:
+        db.execute("DELETE FROM position_slot WHERE day >= ?", (recent_from.isoformat(),))
+
+    batch: list[tuple[str, str, int, int, int]] = []
+
+    def flush() -> None:
+        if batch:
+            db.executemany(SLOT_INSERT, batch)
+            batch.clear()
+
     for (day, slot), count in observed.items():
+        if not full and day < recent_from:
+            continue
         start = _slot_start(day, slot)
         end = start + SLOT
+        iso_day = day.isoformat()
+        online = online_by_slot.get((day, slot), EMPTY_SET)
         for position, first_seen in lifetimes.items():
             if first_seen > end:
                 continue
-            online = 1 if minutes.get((position, day, slot), 0.0) >= ONLINE_THRESHOLD_MIN else 0
-            payload.append((position, day.isoformat(), slot, online, count))
-
-    db.execute("DELETE FROM position_slot")
-    if payload:
-        db.executemany(
-            "INSERT OR REPLACE INTO position_slot (position_key, day, slot, online, n_samples) "
-            "VALUES (?,?,?,?,?)",
-            payload,
-        )
-    return len(payload)
+            batch.append((position, iso_day, slot, 1 if position in online else 0, count))
+            if len(batch) >= INSERT_BATCH:
+                flush()
+    flush()
+    return int(db.scalar("SELECT COUNT(*) FROM position_slot") or 0)
 
 
 def rebuild_pairs(db: Database, reference: StaticReference | None = None) -> int:

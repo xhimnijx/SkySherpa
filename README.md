@@ -112,6 +112,25 @@ forget. Each cycle takes about two seconds and rewrites the bundle atomically en
 a browser refresh picks up the new forecast. If the publisher stops, the site keeps
 working and says how old the forecast is — the correct failure mode.
 
+### Capacity
+
+`skysherpa rehearse` builds a synthetic history and times the pipeline, so you can find
+your laptop's limit before the collector does. At 120 days, 40 airports and 118 positions:
+
+| | |
+| --- | --- |
+| history | 6,969 sessions · 18,000 flights · 1.36 M presence rows |
+| storage | 86 MB database · 710 KB bundle |
+| first rollup | 15.7 s (one-off backfill) |
+| steady-state rollup | 1.4 s (trailing three days only) |
+| model fit | 1.2 s |
+| backtest | 11.3 s |
+| publish | 7.8 s |
+
+A publish cycle at that scale is about ten seconds. The rollup only recomputes the
+trailing three days because history cannot change, which is what makes the fifteen-minute
+cadence cheap; the first build after a fresh clone is the slow one.
+
 ## What it looks like
 
 ![SkySherpa: the ranked board, the airspace coverage map, and the route ribbon](docs/screenshot-desktop.png)
