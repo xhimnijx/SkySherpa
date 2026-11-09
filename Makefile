@@ -23,6 +23,9 @@ sniff:
 publish:
 	PYTHONPATH=src python -m skysherpa publish --out dist
 
+publish-watch:
+	PYTHONPATH=src python -m skysherpa publish --out dist --watch
+
 site:
 	python -m http.server 8099 --directory dist
 

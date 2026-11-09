@@ -11,6 +11,7 @@ import argparse
 import json
 import platform
 import sys
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -805,8 +806,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------- publishing
 
 
-def cmd_publish(args: argparse.Namespace) -> int:
-    settings = _settings(args)
+def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
     try:
         database = _open_db(settings)
     except FileNotFoundError as exc:
@@ -818,6 +818,15 @@ def cmd_publish(args: argparse.Namespace) -> int:
         reference = load_reference(settings)
     except RuntimeError as exc:
         print(f"warning: no static reference ({exc}); airports and map will be empty", file=sys.stderr)
+
+    # Publishing without rolling up first is the classic footgun: the bundle would be
+    # built from stale aggregates. Do it here unless explicitly told not to.
+    if not args.no_rollup:
+        rolled = rebuild_all(database, reference)
+        print(
+            f"rolled up {rolled.slots:,} slots | {rolled.pairs:,} pairs | "
+            f"{rolled.airports:,} airport-hours"
+        )
 
     out = Path(args.out) if args.out else settings.root / "dist"
     try:
@@ -832,12 +841,39 @@ def cmd_publish(args: argparse.Namespace) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    finally:
+        database.close()
 
     print(result.summary())
     print("")
     print(f"  serve:  python -m http.server 8080 --directory {out}")
     print(f"  open:   http://127.0.0.1:8080/")
     return 0
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    if not args.watch:
+        return _publish_once(args, settings)
+
+    interval = max(60, args.interval)
+    print(f"publishing every {interval // 60} min; ctrl-c to stop")
+    while True:
+        try:
+            started = time.monotonic()
+            _publish_once(args, settings)
+            print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
+                  f"{time.monotonic() - started:.1f}s", flush=True)
+        except KeyboardInterrupt:
+            print("stopped")
+            return 0
+        except Exception as exc:  # noqa: BLE001 - a watch loop must survive one bad build
+            print(f"publish failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        try:
+            time.sleep(interval)
+        except KeyboardInterrupt:
+            print("stopped")
+            return 0
 
 
 # ------------------------------------------------------------------------- parser
@@ -962,6 +998,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_pub.add_argument("--no-assets", action="store_true", help="skip copying web/ into dist")
     p_pub.add_argument(
         "--no-calibrate", action="store_true", help="export raw probabilities (diagnostics)"
+    )
+    p_pub.add_argument(
+        "--no-rollup", action="store_true", help="skip rebuilding aggregates before export"
+    )
+    p_pub.add_argument(
+        "--watch", action="store_true", help="republish on an interval (keeps the site fresh)"
+    )
+    p_pub.add_argument(
+        "--interval", type=int, default=900, help="seconds between publishes in --watch mode"
     )
     p_pub.set_defaults(func=cmd_publish)
 

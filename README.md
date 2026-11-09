@@ -71,6 +71,26 @@ clearance. All of it recalculates locally.
 
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
+## Running it for real
+
+Three processes, and only the first needs to be always-on:
+
+```powershell
+# 1. collect the network (forever, unless you pass --minutes)
+.\scripts\dev.ps1 ingest
+
+# 2. republish the forecast every 15 minutes; rolls up first, then calibrates, then exports
+.\scripts\dev.ps1 publish --watch
+
+# 3. serve the static bundle
+python -m http.server 8099 --directory dist
+```
+
+`publish` now rebuilds the aggregates itself, so there is no separate `rollup` step to
+forget. Each cycle takes about two seconds and rewrites the bundle atomically enough that
+a browser refresh picks up the new forecast. If the publisher stops, the site keeps
+working and says how old the forecast is — the correct failure mode.
+
 ## Status
 
 **P0 — scaffold and plan.** What runs today, on stdlib only, no install:
