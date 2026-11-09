@@ -62,11 +62,12 @@ python -m http.server 8099 --directory dist
 ```
 
 What you get: a board ranked by expected ATC coverage for the time you actually fly, a
-canvas choropleth of where controllers are likely to be, and controls for departure time,
-flight length, airports, your fleet, and a style preset (airline ops, GA, or maximum ATC).
-Each route is scored with whichever aircraft in your fleet suits it best, and the terminal
-score knows the difference between a delivery clearance and an approach clearance. All of
-it recalculates locally.
+canvas choropleth of where controllers are likely to be, a ribbon showing coverage along
+the selected route (including the airspace boundaries you will cross), and controls for
+departure time, flight length, airports, your fleet, and a style preset (airline ops, GA,
+or maximum ATC). Each route is scored with whichever aircraft in your fleet suits it best,
+and the terminal score knows the difference between a delivery clearance and an approach
+clearance. All of it recalculates locally.
 
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 

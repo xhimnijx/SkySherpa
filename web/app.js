@@ -7,6 +7,8 @@ const statusEl = document.getElementById("status");
 const boardEl = document.getElementById("board");
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
+const ribbonCanvas = document.getElementById("ribbon");
+const ribbonCaption = document.getElementById("ribbonCaption");
 
 const controls = {
   when: document.getElementById("when"),
@@ -210,6 +212,80 @@ function recompute() {
   writeHash(query);
   renderBoard(outcome, query);
   drawMap(query.departAt);
+  drawRibbon(selected);
+}
+
+// ---- ribbon ----------------------------------------------------------------
+
+function ribbonColour(probability) {
+  if (probability <= 0.02) return "rgba(70, 92, 112, 0.55)";
+  return `hsl(${(205 - probability * 60).toFixed(0)}, 78%, 52%)`;
+}
+
+function drawRibbon(result) {
+  const dpr = window.devicePixelRatio || 1;
+  const width = ribbonCanvas.clientWidth || 600;
+  const height = 54;
+  ribbonCanvas.width = width * dpr;
+  ribbonCanvas.height = height * dpr;
+  const g = ribbonCanvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, width, height);
+  g.font = "10px ui-monospace, monospace";
+  g.textBaseline = "top";
+
+  if (!result || !planner) {
+    ribbonCaption.textContent = "";
+    return;
+  }
+  const data = planner.ribbon(result);
+  if (!data) return;
+
+  const samples = data.samples;
+  const step = width / samples.length;
+  const barTop = 14;
+  const barHeight = 22;
+
+  samples.forEach((sample, index) => {
+    g.fillStyle = ribbonColour(sample.probability);
+    g.fillRect(index * step, barTop, step + 0.8, barHeight);
+  });
+
+  g.strokeStyle = "rgba(120, 170, 220, 0.22)";
+  g.lineWidth = 1;
+  g.strokeRect(0.5, barTop + 0.5, width - 1, barHeight - 1);
+
+  // Airspace boundaries and their codes, when the segment is wide enough to label.
+  let segmentStart = 0;
+  for (let index = 1; index <= samples.length; index += 1) {
+    const boundary =
+      index === samples.length || samples[index].fir !== samples[segmentStart].fir;
+    if (!boundary) continue;
+    const x = index * step;
+    if (index < samples.length) {
+      g.fillStyle = "rgba(8, 17, 28, 0.9)";
+      g.fillRect(x - 0.5, barTop, 1, barHeight);
+    }
+    const code = samples[segmentStart].fir;
+    if (code && x - segmentStart * step > 34) {
+      g.fillStyle = "rgba(148, 163, 184, 0.9)";
+      g.fillText(code, segmentStart * step + 3, barTop + barHeight + 4);
+    }
+    segmentStart = index;
+  }
+
+  g.fillStyle = "#cbd5e1";
+  g.fillText(data.departure, 0, 0);
+  const arrivalWidth = g.measureText(data.arrival).width;
+  g.fillText(data.arrival, width - arrivalWidth, 0);
+
+  const worst = Math.min(...samples.map((sample) => sample.probability));
+  const airspaces = new Set(samples.map((sample) => sample.fir)).size;
+  const hours = Math.floor(data.block / 60);
+  const minutes = String(data.block % 60).padStart(2, "0");
+  ribbonCaption.textContent =
+    `${data.departure} → ${data.arrival} · ${hours}h${minutes} · ` +
+    `worst stretch ${Math.round(worst * 100)}% ATC · ${airspaces} airspace${airspaces === 1 ? "" : "s"}`;
 }
 
 // Keep the Departure control honest: while a preview window is active it should say so.
@@ -290,6 +366,7 @@ function renderBoard(outcome, query) {
       selected = lastResults[Number(node.dataset.index)];
       renderBoard(outcome, query);
       drawMap(query.departAt);
+      drawRibbon(selected);
     });
   });
 }
@@ -548,7 +625,10 @@ async function boot() {
     refreshLive();
     recompute();
   });
-  window.addEventListener("resize", () => drawMap(departureTime()));
+  window.addEventListener("resize", () => {
+    drawMap(departureTime());
+    drawRibbon(selected);
+  });
 
   refreshLive();
   setInterval(refreshLive, 120000);

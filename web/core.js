@@ -355,7 +355,10 @@ export function createPlanner(bundle) {
         );
         if (candidate && (!best || candidate.utility > best.utility)) best = candidate;
       }
-      if (best) results.push(best);
+      if (best) {
+        best.presetKey = query.preset || "airline";
+        results.push(best);
+      }
     }
     results.sort((a, b) => b.utility - a.utility);
     const limit = query.limit ?? 20;
@@ -394,6 +397,43 @@ export function createPlanner(bundle) {
     return best;
   }
 
+  // Coverage along the route, sample by sample, for the ribbon under the map. Only ever
+  // called for the selected result: doing it for every candidate would multiply the cost
+  // of a plan by the number of samples for no benefit.
+  function ribbon(result, bins = 72) {
+    const departure = airportByIcao.get(result.dep);
+    const arrival = airportByIcao.get(result.arr);
+    const spec = aircraftByIcao.get(result.aircraft);
+    if (!departure || !arrival || !spec) return null;
+    const departAt = result.departAt instanceof Date ? result.departAt : new Date(result.departAt);
+    const samples = [];
+    for (let index = 0; index < bins; index += 1) {
+      const fraction = index / (bins - 1);
+      const point = greatCircle(
+        [departure.lat, departure.lon],
+        [arrival.lat, arrival.lon],
+        fraction,
+      );
+      const moment = new Date(departAt.getTime() + result.block * 60000 * fraction);
+      const firIndex = firIndexAt(point[0], point[1]);
+      // The first and last few percent are the terminal environment, where the airport's
+      // service stack is what you actually talk to, not the overlying FIR.
+      const probability =
+        fraction <= 0.05
+          ? result.departureP
+          : fraction >= 0.95
+            ? result.arrivalP
+            : firProbability(firIndex, hourIndex(moment));
+      samples.push({
+        fraction,
+        probability,
+        fir: firCodeOf(firIndex),
+        terminal: fraction <= 0.05 || fraction >= 0.95,
+      });
+    }
+    return { samples, departure: departure.icao, arrival: arrival.icao, block: result.block };
+  }
+
   function coverageAt(date) {
     const hour = hourIndex(date);
     return firs.map((_, index) => firProbability(index + 1, hour));
@@ -402,6 +442,7 @@ export function createPlanner(bundle) {
   return {
     plan,
     bestWindow,
+    ribbon,
     routeProfile,
     firIndexAt,
     firProbability,
