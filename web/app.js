@@ -1,7 +1,14 @@
 // SkySherpa app: load the published bundle, plan locally, render a board and a map.
 // No framework, no build step. Everything below is DOM + canvas.
 
-import { PRESETS, createPlanner, explain, greatCircle, hourIndex } from "./core.js";
+import {
+  PRESETS,
+  createPlanner,
+  explain,
+  fitPreferenceWeights,
+  greatCircle,
+  hourIndex,
+} from "./core.js";
 
 const statusEl = document.getElementById("status");
 const boardEl = document.getElementById("board");
@@ -28,6 +35,13 @@ const controls = {
   duration: document.getElementById("wDuration"),
   popularity: document.getElementById("wPopularity"),
   refresh: document.getElementById("refresh"),
+  tasteButton: document.getElementById("tasteButton"),
+  tasteDialog: document.getElementById("tasteDialog"),
+  duelA: document.getElementById("duelA"),
+  duelB: document.getElementById("duelB"),
+  tasteProgress: document.getElementById("tasteProgress"),
+  tasteReset: document.getElementById("tasteReset"),
+  tasteClose: document.getElementById("tasteClose"),
 };
 
 let planner = null;
@@ -36,6 +50,7 @@ let lastResults = [];
 let live = null;
 let suggestion = null; // an explicit departure time the visitor asked to preview
 let suggestionInfo = null; // the best upcoming window, only when "now" is quiet
+let pendingDuel = false; // deep link asked for the taste dialog once a plan exists
 
 function formatZ(date) {
   return `${date.toISOString().slice(11, 16)}Z`;
@@ -110,6 +125,140 @@ function applyFleet() {
   recompute();
 }
 
+// ---- taste ----------------------------------------------------------------
+
+const TASTE_KEY = "skysherpa.taste";
+let taste = { choices: [], weights: null };
+let weightsTouched = false;
+let duelPair = null;
+
+function loadTaste() {
+  try {
+    const raw = localStorage.getItem(TASTE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed.choices) && parsed.choices.length) {
+      taste.choices = parsed.choices;
+      // Refit rather than trusting stored weights: if the learner improves, the user gets
+      // the improvement instead of a stale vector.
+      taste.weights = fitPreferenceWeights(taste.choices, PRESETS.airline.weights);
+    }
+  } catch (error) {
+    /* corrupt or unavailable storage: fall back to the preset */
+  }
+}
+
+function saveTaste() {
+  try {
+    localStorage.setItem(TASTE_KEY, JSON.stringify({ choices: taste.choices }));
+  } catch (error) {
+    /* private mode */
+  }
+}
+
+function presetWeights() {
+  return (PRESETS[controls.preset.value] || PRESETS.airline).weights;
+}
+
+function applyPresetToSliders() {
+  const weights = presetWeights();
+  controls.atc.value = String(Math.round(weights.atc * 100));
+  controls.duration.value = String(Math.round(weights.duration * 100));
+  controls.popularity.value = String(Math.round(weights.popularity * 100));
+}
+
+function manualWeights() {
+  return {
+    atc: Number(controls.atc.value) / 100,
+    duration: Number(controls.duration.value) / 100,
+    popularity: Number(controls.popularity.value) / 100,
+    fit: presetWeights().fit,
+  };
+}
+
+function activeWeights() {
+  if (taste.weights) return taste.weights;
+  if (weightsTouched) return manualWeights();
+  return undefined;
+}
+
+function featureVector(result) {
+  return {
+    atc: result.atc,
+    duration: result.durationFit,
+    fit: result.aircraftFit,
+    popularity: result.popularity,
+  };
+}
+
+function cardMarkup(result) {
+  const hours = Math.floor(result.block / 60);
+  const minutes = String(result.block % 60).padStart(2, "0");
+  return `<span class="duel-route">${result.dep} → ${result.arr}</span>
+    <span class="duel-meta">${result.aircraft} · ${hours}h${minutes} · ${result.distance} nm</span>
+    <span class="duel-pct">${Math.round(result.atc * 100)}%</span>
+    <span class="duel-why">${explain(result)}</span>`;
+}
+
+function pickDuel() {
+  const pool = lastResults.slice(0, Math.min(8, lastResults.length));
+  if (pool.length < 2) return null;
+  const first = pool[Math.floor(Math.random() * pool.length)];
+  let second = first;
+  for (let guard = 0; guard < 20 && second === first; guard += 1) {
+    second = pool[Math.floor(Math.random() * pool.length)];
+  }
+  return second === first ? null : [first, second];
+}
+
+function tasteProgress() {
+  const weights = taste.weights;
+  if (!weights) return "No choices yet - the ranking uses the preset.";
+  const count = taste.choices.length;
+  return (
+    `${count} choice${count === 1 ? "" : "s"} · ATC ${weights.atc.toFixed(2)} · ` +
+    `time ${weights.duration.toFixed(2)} · fit ${weights.fit.toFixed(2)} · ` +
+    `popular ${weights.popularity.toFixed(2)}`
+  );
+}
+
+function renderDuel() {
+  duelPair = pickDuel();
+  if (!duelPair) {
+    controls.duelA.disabled = true;
+    controls.duelB.disabled = true;
+    controls.duelA.innerHTML = `<span class="duel-why">Not enough flights to compare. Widen the time window or clear the airports.</span>`;
+    controls.duelB.innerHTML = "";
+  } else {
+    controls.duelA.disabled = false;
+    controls.duelB.disabled = false;
+    controls.duelA.innerHTML = cardMarkup(duelPair[0]);
+    controls.duelB.innerHTML = cardMarkup(duelPair[1]);
+  }
+  controls.tasteProgress.textContent = tasteProgress();
+}
+
+function recordChoice(winner) {
+  if (!duelPair) return;
+  taste.choices.push({
+    a: featureVector(duelPair[0]),
+    b: featureVector(duelPair[1]),
+    winner,
+  });
+  taste.weights = fitPreferenceWeights(taste.choices, presetWeights());
+  saveTaste();
+  recompute();
+  renderDuel();
+}
+
+function openTaste() {
+  if (!taste.weights && taste.choices.length) {
+    taste.weights = fitPreferenceWeights(taste.choices, presetWeights());
+  }
+  renderDuel();
+  controls.tasteDialog.showModal();
+}
+
 async function loadBundle() {
   const binary = async (name) => (await fetch(`data/${name}`)).arrayBuffer();
   const json = async (name) => (await fetch(`data/${name}`)).json();
@@ -182,12 +331,8 @@ function recompute() {
     to: controls.to.value || null,
     aircraft: fleet,
     preset: controls.preset.value || "airline",
+    weights: activeWeights(),
     limit: 18,
-    weights: {
-      atc: Number(controls.atc.value) / 100,
-      duration: Number(controls.duration.value) / 100,
-      popularity: Number(controls.popularity.value) / 100,
-    },
   };
 
   const outcome = planner.plan(query);
@@ -342,7 +487,7 @@ function renderBoard(outcome, query) {
   boardEl.innerHTML = `
     <div class="board-head">
       <span>${outcome.matched} flights · ${Math.max(0.1, outcome.elapsedMs).toFixed(1)} ms · departing ${formatZ(query.departAt)}</span>
-      <span>${(PRESETS[outcome.preset] || PRESETS.airline).label}</span>
+      <span>${(PRESETS[outcome.preset] || PRESETS.airline).label}${taste.weights ? " · tuned" : ""}</span>
     </div>${hint}${rows}`;
 
   const useHint = boardEl.querySelector('[data-action="use"]');
@@ -567,6 +712,7 @@ function readHash() {
     buildFleetOptions();
     controls.fleetDialog.showModal();
   }
+  if (params.get("duel") === "1") pendingDuel = true;
 }
 
 function writeHash(query) {
@@ -594,10 +740,16 @@ async function boot() {
     populateSelects();
     fleet = loadFleet();
     updateFleetLabel();
+    loadTaste();
+    applyPresetToSliders();
     controls.when.value = "now";
     readHash();
     updateStatus();
     recompute();
+    if (pendingDuel) {
+      pendingDuel = false;
+      openTaste();
+    }
   } catch (error) {
     statusEl.textContent = `failed to load forecast: ${error.message}`;
     console.error(error);
@@ -609,9 +761,36 @@ async function boot() {
     suggestionInfo = null;
     recompute();
   });
-  for (const key of ["block", "from", "to", "preset", "atc", "duration", "popularity"]) {
+  for (const key of ["block", "from", "to"]) {
     controls[key].addEventListener("input", recompute);
   }
+  // Moving a weight slider is an explicit opinion for this session; it overrides what
+  // was learned, without deleting the choices (Tune my taste refits them).
+  for (const key of ["atc", "duration", "popularity"]) {
+    controls[key].addEventListener("input", () => {
+      weightsTouched = true;
+      taste.weights = null;
+      recompute();
+    });
+  }
+  controls.preset.addEventListener("input", () => {
+    applyPresetToSliders();
+    weightsTouched = false;
+    if (taste.choices.length) {
+      taste.weights = fitPreferenceWeights(taste.choices, presetWeights());
+    }
+    recompute();
+  });
+  controls.tasteButton.addEventListener("click", openTaste);
+  controls.tasteClose.addEventListener("click", () => controls.tasteDialog.close());
+  controls.tasteReset.addEventListener("click", () => {
+    taste = { choices: [], weights: null };
+    saveTaste();
+    recompute();
+    renderDuel();
+  });
+  controls.duelA.addEventListener("click", () => recordChoice("a"));
+  controls.duelB.addEventListener("click", () => recordChoice("b"));
   controls.fleetButton.addEventListener("click", openFleet);
   controls.fleetApply.addEventListener("click", applyFleet);
   controls.fleetCancel.addEventListener("click", () => controls.fleetDialog.close());

@@ -68,6 +68,7 @@
         </fieldset>
 
         <button id="refresh" class="refresh">Recompute</button>
+        <button id="tasteButton" type="button" class="ghost taste">Tune my taste</button>
         <p class="footnote">
           Planning runs in your browser. Tower and approach are weighted highest,
           ground next, delivery least; a centre working top-down counts for every layer
@@ -104,6 +105,24 @@
       <div class="dialog-actions">
         <button id="fleetCancel" type="button" class="ghost">Cancel</button>
         <button id="fleetApply" type="button" class="primary">Use these</button>
+      </div>
+    </dialog>
+
+    <dialog id="tasteDialog">
+      <h2>Which would you rather fly?</h2>
+      <p class="dialog-hint">
+        Pick one, a few times. The ranking learns what you actually value — and stays
+        anchored to the preset, so five clicks cannot send it somewhere silly. Choices
+        never leave this device.
+      </p>
+      <div class="duel">
+        <button id="duelA" class="duel-card" type="button"></button>
+        <button id="duelB" class="duel-card" type="button"></button>
+      </div>
+      <div class="dialog-actions taste-actions">
+        <span id="tasteProgress" class="taste-progress"></span>
+        <button id="tasteReset" type="button" class="ghost">Reset</button>
+        <button id="tasteClose" type="button" class="primary">Done</button>
       </div>
     </dialog>
   </body>

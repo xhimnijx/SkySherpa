@@ -278,6 +278,71 @@ dialog input[type="search"] {
   background: #1e4763;
 }
 
+.taste {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.duel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.duel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.duel-card:hover {
+  border-color: #2b5470;
+  background: #14283a;
+}
+
+.duel-route {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.duel-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.duel-pct {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--good);
+  font-variant-numeric: tabular-nums;
+}
+
+.duel-why {
+  color: #7f97ab;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.taste-actions {
+  align-items: center;
+}
+
+.taste-progress {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .footnote {
   color: #5b738a;
   font-size: 11px;

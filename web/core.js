@@ -66,6 +66,76 @@ export function layerScore(layers, weights, mask = 0, renormalise = false) {
   return weightSum > 0 ? total / weightSum : 0;
 }
 
+// ---------------------------------------------------------------- preferences
+
+// The features a pairwise choice can teach, named exactly as the utility weights are, so
+// a learned vector can be dropped straight into `plan()` without a translation table.
+// Deliberately the same four numbers the ranking already uses: a preference model that
+// invented new features would be unexplainable, and an unexplainable ranking is what this
+// project exists to avoid.
+export const FEATURES = ["atc", "duration", "fit", "popularity"];
+
+export function normalizeWeights(weights) {
+  let total = 0;
+  for (const key of FEATURES) total += Math.max(0, weights[key] || 0);
+  if (total <= 0) return { ...weights };
+  const out = {};
+  for (const key of FEATURES) out[key] = Math.max(0, weights[key] || 0) / total;
+  return out;
+}
+
+/**
+ * Bradley-Terry preference learning on feature differences.
+ *
+ * The preset is treated as `priorWeight` pseudo-comparisons and the learned weights are
+ * blended with it by count: ten choices move the ranking noticeably, one choice barely
+ * moves it at all. An earlier version relied on L2 alone and a single click shifted the
+ * ATC weight by 0.31 -- which is what "overfitting on one data point" looks like when it
+ * happens to a person.
+ */
+export function fitPreferenceWeights(choices, prior, options = {}) {
+  const { epochs = 200, learningRate = 0.5, l2 = 0.001, priorWeight = 5 } = options;
+  const priorVector = FEATURES.map((key) => Math.max(0, prior[key] || 0));
+  if (!choices.length) return normalizeWeights(prior);
+
+  const weights = priorVector.slice();
+  for (let epoch = 0; epoch < epochs; epoch += 1) {
+    const gradient = new Array(FEATURES.length).fill(0);
+    for (const choice of choices) {
+      const difference = FEATURES.map(
+        (key, index) => (choice.a[key] ?? 0) - (choice.b[key] ?? 0),
+      );
+      let dot = 0;
+      for (let index = 0; index < weights.length; index += 1) dot += weights[index] * difference[index];
+      const probability = 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, dot))));
+      const error = (choice.winner === "a" ? 1 : 0) - probability;
+      for (let index = 0; index < gradient.length; index += 1) {
+        gradient[index] += error * difference[index];
+      }
+    }
+    for (let index = 0; index < weights.length; index += 1) {
+      const pull = l2 * (priorVector[index] - weights[index]);
+      const step = learningRate * (gradient[index] / choices.length + pull);
+      // Clamp into [0, 1]: an unbounded ascent lets one comparison push a weight past
+      // 1.0, which then survives the prior blend and looks like confidence.
+      weights[index] = Math.min(1, Math.max(0, weights[index] + step));
+    }
+  }
+
+  const fitted = normalizeWeights(
+    Object.fromEntries(FEATURES.map((key, index) => [key, weights[index]])),
+  );
+  const priorNormalised = normalizeWeights(prior);
+  const count = choices.length;
+  const blended = Object.fromEntries(
+    FEATURES.map((key) => [
+      key,
+      (count * fitted[key] + priorWeight * priorNormalised[key]) / (count + priorWeight),
+    ]),
+  );
+  return normalizeWeights(blended);
+}
+
 // En-route: a centre controls, a flight service station informs. FSS is worth something
 // when nobody is controlling, and nothing extra when a centre is already on.
 const FSS_VALUE = 0.35;

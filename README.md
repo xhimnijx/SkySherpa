@@ -69,6 +69,11 @@ or maximum ATC). Each route is scored with whichever aircraft in your fleet suit
 and the terminal score knows the difference between a delivery clearance and an approach
 clearance. All of it recalculates locally.
 
+There is also a tuning mode: "Tune my taste" shows two flights and asks which you would
+rather fly. A few choices adjust the four utility weights toward what you actually value —
+regularised so five clicks cannot send the ranking somewhere silly — and the choices never
+leave your browser.
+
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
 ## Running it for real
