@@ -25,6 +25,12 @@ let planner = null;
 let selected = null;
 let lastResults = [];
 let live = null;
+let suggestion = null; // an explicit departure time the visitor asked to preview
+let suggestionInfo = null; // the best upcoming window, only when "now" is quiet
+
+function formatZ(date) {
+  return `${date.toISOString().slice(11, 16)}Z`;
+}
 
 async function loadBundle() {
   const binary = async (name) => (await fetch(`data/${name}`)).arrayBuffer();
@@ -81,6 +87,7 @@ function populateSelects() {
 }
 
 function departureTime() {
+  if (suggestion) return new Date(suggestion);
   const value = controls.when.value;
   const now = new Date();
   if (value === "now") return new Date(now.getTime() + 10 * 60000);
@@ -117,11 +124,48 @@ function recompute() {
 
   const outcome = planner.plan(query);
   lastResults = outcome.results;
+
+  // If the next hour is quiet, find out when it is not. Showing a board of 2%
+  // flights is technically honest and practically useless.
+  if (!suggestion && outcome.results.length) {
+    const top = outcome.results[0];
+    if (top.atc < 0.2) {
+      const window = planner.bestWindow({ ...query, limit: 1 }, { hours: 24 });
+      suggestionInfo = window && window.atc >= top.atc + 0.08 ? window : null;
+    } else {
+      suggestionInfo = null;
+    }
+  }
+
+  syncWhenSelect();
   if (!selected || !outcome.results.some((r) => r.dep === selected.dep && r.arr === selected.arr)) {
     selected = outcome.results[0] ?? null;
   }
+  writeHash(query);
   renderBoard(outcome, query);
   drawMap(query.departAt);
+}
+
+// Keep the Departure control honest: while a preview window is active it should say so.
+function syncWhenSelect() {
+  const existing = controls.when.querySelector('option[value="at"]');
+  if (suggestion) {
+    if (existing) {
+      existing.textContent = `preview ${formatZ(suggestion)}`;
+    } else {
+      const option = document.createElement("option");
+      option.value = "at";
+      option.textContent = `preview ${formatZ(suggestion)}`;
+      controls.when.appendChild(option);
+    }
+    controls.when.value = "at";
+    return;
+  }
+  if (existing) {
+    const wasPreview = controls.when.value === "at";
+    existing.remove();
+    if (wasPreview) controls.when.value = "now";
+  }
 }
 
 function renderBoard(outcome, query) {
@@ -147,12 +191,34 @@ function renderBoard(outcome, query) {
       </button>`;
     })
     .join("");
+  const hint = suggestion
+    ? `<div class="hint">Previewing <b>${formatZ(departureTime())}</b><button data-action="clear">back to now</button></div>`
+    : suggestionInfo
+      ? `<div class="hint">Quiet right now &mdash; best window in the next 24 h is <b>${formatZ(suggestionInfo.at)}</b> (${Math.round(suggestionInfo.atc * 100)}% ATC, ${suggestionInfo.dep}&ndash;${suggestionInfo.arr})<button data-action="use">preview</button></div>`
+      : "";
+
   boardEl.innerHTML = `
     <div class="board-head">
-      <span>${outcome.matched} flights scored in ${outcome.elapsedMs.toFixed(0)} ms</span>
+      <span>${outcome.matched} flights · ${Math.max(0.1, outcome.elapsedMs).toFixed(1)} ms · departing ${formatZ(query.departAt)}</span>
       <span>${outcome.aircraft}</span>
-    </div>${rows}`;
+    </div>${hint}${rows}`;
 
+  const useHint = boardEl.querySelector('[data-action="use"]');
+  if (useHint) {
+    useHint.addEventListener("click", () => {
+      if (suggestionInfo) suggestion = suggestionInfo.at;
+      suggestionInfo = null;
+      recompute();
+    });
+  }
+  const clearHint = boardEl.querySelector('[data-action="clear"]');
+  if (clearHint) {
+    clearHint.addEventListener("click", () => {
+      suggestion = null;
+      controls.when.value = "now";
+      recompute();
+    });
+  }
   boardEl.querySelectorAll(".row").forEach((node) => {
     node.addEventListener("click", () => {
       selected = lastResults[Number(node.dataset.index)];
@@ -205,12 +271,19 @@ function coverageColour(probability) {
 
 function drawMap(at) {
   if (!planner) return;
+  // Derive the mid-flight moment from the selected route, not from a parameter: a stray
+  // redraw (resize, click) was passing nothing and showing the departure hour instead.
+  const blockMinutes = selected && selected.block ? selected.block : 0;
   const { project, width, height } = projection();
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = "#08111c";
   ctx.fillRect(0, 0, width, height);
 
-  const hour = hourIndex(at);
+  // Show the airspace at the middle of the flight, not at the gate. A departure-hour
+  // map next to a whole-flight score reads as a contradiction.
+  const midFlight = new Date(at.getTime() + Math.max(0, blockMinutes) * 30000);
+  canvas.dataset.mid = midFlight.toISOString();
+  const hour = hourIndex(midFlight);
 
   // Airspace choropleth: where will someone be talking?
   for (const polygon of planner.polygons) {
@@ -230,7 +303,7 @@ function drawMap(at) {
   }
 
   // FIR outlines, faint.
-  ctx.strokeStyle = "rgba(120, 170, 220, 0.10)";
+  ctx.strokeStyle = "rgba(120, 170, 220, 0.16)";
   ctx.lineWidth = 0.6;
   for (const polygon of planner.polygons) {
     ctx.beginPath();
@@ -273,8 +346,8 @@ function drawMap(at) {
 
   ctx.fillStyle = "rgba(148, 163, 184, 0.75)";
   ctx.font = "11px ui-monospace, monospace";
-  const stamp = at.toISOString().slice(11, 16);
-  ctx.fillText(`forecast for ${stamp}Z`, 12, height - 12);
+  const stamp = midFlight.toISOString().slice(11, 16);
+  ctx.fillText(`forecast for ${stamp}Z (mid-flight)`, 12, height - 12);
   if (live) {
     ctx.fillText(`live: ${live.controllers} controllers online`, 12, height - 28);
   }
@@ -312,6 +385,43 @@ function updateStatus() {
     `${meta.positions_modelled} positions${liveText}`;
 }
 
+// ---- permalinks ------------------------------------------------------------
+
+function readHash() {
+  const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+  if (!params.toString()) return;
+  const block = params.get("block");
+  if (block) controls.block.value = block;
+  const from = params.get("from");
+  if (from) controls.from.value = from;
+  const to = params.get("to");
+  if (to) controls.to.value = to;
+  const aircraft = params.get("aircraft");
+  if (aircraft) controls.aircraft.value = aircraft;
+  const when = params.get("when");
+  if (when) controls.when.value = when;
+  const at = params.get("at");
+  if (at) {
+    const parsed = new Date(at);
+    if (!Number.isNaN(parsed.getTime())) suggestion = parsed;
+  }
+}
+
+function writeHash(query) {
+  const params = new URLSearchParams();
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  params.set("aircraft", query.aircraft);
+  params.set("block", String(query.blockMinutes));
+  if (suggestion) params.set("at", `${suggestion.toISOString().slice(0, 16)}Z`);
+  const next = params.toString();
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}#${next}`);
+  } catch (error) {
+    /* file:// and some embeds refuse history changes; the page still works */
+  }
+}
+
 // ---- boot ------------------------------------------------------------------
 
 async function boot() {
@@ -320,6 +430,7 @@ async function boot() {
     planner = createPlanner(bundle);
     populateSelects();
     controls.when.value = "now";
+    readHash();
     updateStatus();
     recompute();
   } catch (error) {
@@ -328,7 +439,12 @@ async function boot() {
     return;
   }
 
-  for (const key of ["when", "block", "from", "to", "aircraft", "atc", "duration", "popularity"]) {
+  controls.when.addEventListener("input", () => {
+    suggestion = null;
+    suggestionInfo = null;
+    recompute();
+  });
+  for (const key of ["block", "from", "to", "aircraft", "atc", "duration", "popularity"]) {
     controls[key].addEventListener("input", recompute);
   }
   controls.refresh.addEventListener("click", () => {

@@ -70,3 +70,16 @@ def test_core_module_has_no_browser_dependencies() -> None:
     source = (ROOT / "web" / "core.js").read_text(encoding="utf-8")
     for forbidden in ("document.", "window.", "localStorage", "fetch("):
         assert forbidden not in source, f"core.js must not touch {forbidden}"
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+@pytest.mark.parametrize("filename", ["core.js", "app.js"])
+def test_browser_module_parses(filename: str) -> None:
+    """A syntax error in app.js would only show up in a browser; catch it here."""
+    completed = subprocess.run(
+        [NODE, "--check", str(ROOT / "web" / filename)],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+    )
+    assert completed.returncode == 0, completed.stderr

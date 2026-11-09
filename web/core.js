@@ -227,6 +227,31 @@ export function createPlanner(bundle) {
     };
   }
 
+  // Scan the next few hours for the best moment. Used when the current hour is quiet:
+  // rather than showing a board of 2% flights, tell the user when to fly instead.
+  function bestWindow(query, options = {}) {
+    const hours = options.hours ?? 10;
+    const base = new Date(query.departAt);
+    base.setUTCMinutes(0, 0, 0);
+    let best = null;
+    for (let step = 0; step < hours; step += 1) {
+      const when = new Date(base.getTime() + step * 3600000);
+      const outcome = plan({ ...query, departAt: when, limit: 1 });
+      const top = outcome.results[0];
+      if (!top) continue;
+      if (!best || top.atc > best.atc) {
+        best = {
+          at: when,
+          atc: top.atc,
+          dep: top.dep,
+          arr: top.arr,
+          block: top.block,
+        };
+      }
+    }
+    return best;
+  }
+
   function coverageAt(date) {
     const hour = hourIndex(date);
     return firs.map((_, index) => firProbability(index + 1, hour));
@@ -234,6 +259,7 @@ export function createPlanner(bundle) {
 
   return {
     plan,
+    bestWindow,
     routeProfile,
     firIndexAt,
     firProbability,
@@ -245,6 +271,7 @@ export function createPlanner(bundle) {
     aircraftByIcao,
     meta,
     airports,
+    aircraft,
     pairs,
     polygons: bundle.polygons,
     firs,
@@ -252,10 +279,12 @@ export function createPlanner(bundle) {
 }
 
 export function explain(result) {
-  const parts = [`${Math.round(result.atc * 100)}% ATC overall`];
+  // The percentage is already on the board; this line explains *why*.
+  const parts = [];
   if (result.enroute >= 0.55) parts.push("solid en-route cover");
   else if (result.enroute >= 0.25) parts.push("patchy en-route");
-  else if (result.enroute > 0.02) parts.push("little en-route cover");
+  else if (result.enroute >= 0.05) parts.push("thin en-route cover");
+  else parts.push("en-route mostly unicom");
   if (result.departureP >= 0.5) parts.push("tower on departure");
   if (result.arrivalP >= 0.5) parts.push("approach on arrival");
   if (result.observed >= 5) parts.push(`${result.observed} recent flights`);
