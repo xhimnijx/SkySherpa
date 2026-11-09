@@ -105,7 +105,15 @@ python -m http.server 8099 --directory dist
 
 # any time: is the history deep enough to trust the forecast yet?
 .\scripts\dev.ps1 status
+
+# monthly, or whenever: keep the database laptop-sized
+.\scripts\dev.ps1 prune --keep-days 45
 ```
+
+Pruning drops raw flights older than the window and reclaims the space. It cannot hurt the
+forecast: the model reads controller sessions and the materialised presence matrix, and
+neither is touched. It shortens the *route popularity* window, which is a question about
+recent behaviour anyway.
 
 `publish` now rebuilds the aggregates itself, so there is no separate `rollup` step to
 forget. Each cycle takes about two seconds and rewrites the bundle atomically enough that

@@ -697,6 +697,11 @@ site, personalisation, and the operational tooling (`publish --watch`, `status`,
 4. **A second network.** The engine is not VATSIM-specific except for the feed adapter; the
    same model would work for IVAO.
 
+**Parked for after this goal:** a controller-side dispatcher — "which position is most worth
+opening, now or at a chosen time". The interesting difficulty is that pilot demand is
+endogenous to ATC supply, so it is not simply this model read backwards. Sketched in
+[`docs/ideas.md`](docs/ideas.md).
+
 ---
 
 ## 19. Glossary

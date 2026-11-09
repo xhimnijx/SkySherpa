@@ -964,6 +964,26 @@ def cmd_rehearse(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prune(args: argparse.Namespace) -> int:
+    from .prune import prune_history
+
+    settings = _settings(args)
+    try:
+        database = _open_db(settings)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
+        result = prune_history(
+            database, keep_days=args.keep_days, dry_run=args.dry_run
+        )
+    finally:
+        database.close()
+    suffix = " (dry run)" if args.dry_run else ""
+    print(result.summary() + suffix)
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 
 
@@ -1060,6 +1080,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_rehearse.add_argument("--seed", type=int, default=7)
     p_rehearse.add_argument("--out", help="keep the rehearsal database here")
     p_rehearse.set_defaults(func=cmd_rehearse)
+
+    p_prune = sub.add_parser(
+        "prune", parents=[common], help="drop raw flights older than N days, keeping aggregates"
+    )
+    p_prune.add_argument("--keep-days", type=int, default=45)
+    p_prune.add_argument("--dry-run", action="store_true")
+    p_prune.set_defaults(func=cmd_prune)
 
     p_rollup = sub.add_parser(
         "rollup", parents=[common], help="rebuild presence and route aggregates"
