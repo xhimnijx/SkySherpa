@@ -20,6 +20,14 @@ if [ "$version" -lt 311 ]; then
   exit 1
 fi
 
+# A stock Ubuntu image often lacks venv/ensurepip, and the failure message ("ensurepip is
+# not available") does not say what to install.
+if ! "$python" -c 'import venv, ensurepip' >/dev/null 2>&1; then
+  say "error: $python cannot create virtual environments"
+  say "       install it first:  sudo apt install python3-venv"
+  exit 1
+fi
+
 if [ ! -d "$repo/.venv" ]; then
   say "creating $repo/.venv"
   "$python" -m venv "$repo/.venv"
@@ -27,6 +35,12 @@ fi
 "$repo/.venv/bin/pip" install --quiet --upgrade pip
 say "installing skysherpa into the venv"
 "$repo/.venv/bin/pip" install --quiet -e "$repo"
+
+# Fail here rather than in a unit that restarts forever.
+"$repo/.venv/bin/python" -m skysherpa version >/dev/null || {
+  say "error: the installed package does not run; check the pip output above"
+  exit 1
+}
 
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"

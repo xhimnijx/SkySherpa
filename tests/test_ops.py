@@ -89,3 +89,36 @@ def test_the_installer_requires_python_311() -> None:
     installer = (ROOT / "ops" / "install-ubuntu.sh").read_text(encoding="utf-8")
     assert "311" in installer
     assert "loginctl enable-linger" in installer
+
+
+def test_the_web_unit_waits_for_the_first_bundle() -> None:
+    """http.server exits on a missing directory; on first boot the bundle does not exist."""
+    service = _parse(SYSTEMD / "skysherpa-web.service")["Service"]
+    assert "ExecStartPre" in service
+    assert "dist-real" in service["ExecStartPre"]
+    assert int(service["TimeoutStartSec"]) >= 300
+
+
+def test_the_installer_checks_for_venv_support() -> None:
+    """A stock image often lacks python3-venv and the raw error does not say so."""
+    installer = (ROOT / "ops" / "install-ubuntu.sh").read_text(encoding="utf-8")
+    assert "ensurepip" in installer
+    assert "python3-venv" in installer
+    assert "skysherpa version" in installer
+
+
+def test_launchers_do_not_assume_a_python_binary() -> None:
+    """Ubuntu ships python3 and, on a clean image, no `python` at all."""
+    dev = (ROOT / "scripts" / "dev.sh").read_text(encoding="utf-8")
+    assert ".venv/bin/python" in dev
+    assert "python3" in dev
+
+    make = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "PYTHON ?=" in make
+    assert "python3" in make
+    # Every command must go through $(PYTHON) rather than a bare interpreter name.
+    for line in make.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("python ", "PYTHONPATH=src python ")):
+            raise AssertionError(f"Makefile hardcodes an interpreter: {stripped}")
+

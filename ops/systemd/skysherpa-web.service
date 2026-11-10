@@ -6,6 +6,11 @@ After=skysherpa-publish.service
 [Service]
 Type=simple
 WorkingDirectory=@REPO@
+# The bundle does not exist until the first publish cycle finishes, and http.server exits
+# immediately on a missing directory -- which would show up as a crash loop on first boot.
+# Wait for it instead, with a generous start timeout to cover collection plus one publish.
+ExecStartPre=/bin/sh -c 'until test -d @REPO@/dist-real; do sleep 5; done'
+TimeoutStartSec=360
 # Bound to loopback on purpose. This is a static file server for one person; exposing it
 # to the network is a separate decision with a real web server, not python -m http.server.
 ExecStart=@REPO@/.venv/bin/python -m http.server 8099 --bind 127.0.0.1 --directory @REPO@/dist-real
