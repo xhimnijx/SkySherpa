@@ -265,6 +265,15 @@ def test_installer_uninstall_removes_only_its_own_units(tmp_path: Path) -> None:
     assert "left in place" in completed.stdout
 
 
+def test_makefile_recipes_are_tab_indented() -> None:
+    """A space-indented recipe is the classic `missing separator` failure, and make is not
+    installed on the Windows dev box, so nothing else here would catch it."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    for number, line in enumerate(makefile.splitlines(), start=1):
+        if line.startswith(" "):
+            raise AssertionError(f"Makefile line {number} is space-indented: {line[:60]!r}")
+
+
 def test_makefile_only_references_declared_extras() -> None:
     """`make install` used to name extras that no longer exist; it would fail on a clone."""
     import re

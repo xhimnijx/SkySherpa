@@ -41,6 +41,13 @@ jobs:
         run: bash ops/install-ubuntu.sh --dry-run
       - name: launcher finds an interpreter
         run: scripts/dev.sh version
+      - name: makefile parses and expands
+        # There is no make on the Windows development box, so this is its only real test.
+        run: |
+          make help
+          make -n doctor
+          make -n publish
+          make -n check
 
   end-to-end:
     name: synthetic history end to end
