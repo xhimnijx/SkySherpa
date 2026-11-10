@@ -71,6 +71,42 @@ def test_backtest_runs_through_the_cli(data_dir: Path, capsys) -> None:
     assert "backed cells" in printed
 
 
+def test_doctor_renders_and_reports_degradation(monkeypatch, capsys) -> None:
+    """The health check a 24/7 operator runs, with its source checks stubbed out."""
+    from skysherpa import doctor as doctor_module
+
+    checks = [
+        doctor_module.Check(name="feed", ok=True, detail="1,200 pilots | 60 ATC", elapsed_ms=300),
+        doctor_module.Check(
+            name="atc_history",
+            ok=False,
+            detail="TimeoutError: read timed out",
+            critical=False,
+            elapsed_ms=8000,
+        ),
+    ]
+    monkeypatch.setattr(doctor_module, "run_checks", lambda settings, include_weather=True: checks)
+
+    code = cli.main(["doctor"])
+    printed = capsys.readouterr().out
+    assert "feed" in printed
+    assert "atc_history" in printed
+    assert "degraded" in printed
+    # A non-critical failure must not fail the command.
+    assert code == 0
+
+
+def test_doctor_fails_when_a_critical_check_fails(monkeypatch, capsys) -> None:
+    from skysherpa import doctor as doctor_module
+
+    checks = [doctor_module.Check(name="feed", ok=False, detail="403 from the feed", critical=True)]
+    monkeypatch.setattr(doctor_module, "run_checks", lambda settings, include_weather=True: checks)
+    assert cli.main(["doctor"]) == 1
+    # A critical failure is not "degraded": it says FAILED, which is the distinction the
+    # command exists to make (VATSIM is down vs. one optional source is slow).
+    assert "1 FAILED" in capsys.readouterr().out
+
+
 def test_db_and_prune_speak_without_touching_data(data_dir: Path, capsys) -> None:
     assert cli.main(["db", "--data-dir", str(data_dir)]) == 0
     assert "snapshots" in capsys.readouterr().out
@@ -78,3 +114,60 @@ def test_db_and_prune_speak_without_touching_data(data_dir: Path, capsys) -> Non
     # keep-days beyond the history: nothing to prune, and a dry run changes nothing either way
     assert cli.main(["prune", "--data-dir", str(data_dir), "--keep-days", "3650"]) == 0
     assert "kept the last" in capsys.readouterr().out
+
+
+def test_ingest_once_records_a_snapshot(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The command that runs 24/7, driven once with a stubbed feed."""
+    from factories import controller, flight_plan, pilot, snapshot, stamp
+
+    from skysherpa import ingest as ingest_module
+
+    snap = snapshot(
+        stamp(22, 0),
+        controllers=[controller("EGLL_TWR")],
+        pilots=[pilot("BAW1", plan=flight_plan("EGLL", "LEPA"))],
+    )
+    monkeypatch.setattr(ingest_module, "fetch_snapshot", lambda settings: snap)
+
+    assert cli.main(["ingest", "--once", "--data-dir", str(tmp_path)]) == 0
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    stats = database.stats()
+    assert stats["snapshots"] == 1
+    assert stats["sessions"] == 1
+    assert stats["flights"] == 1
+    database.close()
+
+
+def test_simulate_and_rollup_through_the_cli(tmp_path: Path, capsys) -> None:
+    assert cli.main(["simulate", "--data-dir", str(tmp_path), "--days", "5"]) == 0
+    assert "synthetic network" in capsys.readouterr().out
+
+    assert cli.main(["rollup", "--data-dir", str(tmp_path)]) == 0
+    assert "rolled up" in capsys.readouterr().out
+
+
+def test_rehearse_runs_a_short_rehearsal(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The capacity tool, at a size that finishes in seconds."""
+    from skysherpa import rehearse as rehearse_module
+
+    monkeypatch.setattr(rehearse_module, "default_reference", lambda: _reference())
+    assert (
+        cli.main(
+            [
+                "rehearse",
+                "--days",
+                "35",
+                "--airports",
+                "2",
+                "--flights-per-day",
+                "6",
+                "--seed",
+                "7",
+            ]
+        )
+        == 0
+    )
+    printed = capsys.readouterr().out
+    assert "rehearsal:" in printed
+    assert "35 days" in printed
+    assert "storage" in printed
