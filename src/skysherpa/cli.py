@@ -866,6 +866,23 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _write_heartbeat(settings: Settings, args: argparse.Namespace, phase: str, **extra) -> None:
+    """Record what the watch loop is doing, on disk rather than only on stdout.
+
+    A stalled loop can lose its console, and a hang *during* a cycle is indistinguishable
+    from a dead process if only successes are recorded. Writing "started" before the work
+    and "ok"/"hung" after it makes the two cases tell apart.
+    """
+    try:
+        out_dir = Path(args.out) if args.out else settings.root / "dist"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, object] = {"at": datetime.now(UTC).isoformat(), "phase": phase}
+        payload.update(extra)
+        (out_dir / ".publisher.json").write_text(json.dumps(payload), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     settings = _settings(args)
     if not args.watch:
@@ -880,6 +897,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
     while True:
         try:
             started = time.monotonic()
+            _write_heartbeat(settings, args, "started", interval=interval)
             worker = threading.Thread(target=_publish_once, args=(args, settings), daemon=True)
             worker.start()
             worker.join(timeout=budget)
@@ -890,29 +908,14 @@ def cmd_publish(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+                _write_heartbeat(settings, args, "hung", interval=interval)
             else:
                 elapsed = time.monotonic() - started
                 print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
                       f"{elapsed:.1f}s", flush=True)
-                # Heartbeat on disk, not just on stdout: a stalled loop can lose its
-                # console, and `status` must be able to tell a live publisher from a dead
-                # one without reading a background job.
-                try:
-                    out_dir = Path(args.out) if args.out else settings.root / "dist"
-                    out_dir.mkdir(parents=True, exist_ok=True)
-                    (out_dir / ".publisher.json").write_text(
-                        json.dumps(
-                            {
-                                "at": datetime.now(UTC).isoformat(),
-                                "ok": True,
-                                "seconds": round(elapsed, 1),
-                                "interval": interval,
-                            }
-                        ),
-                        encoding="utf-8",
-                    )
-                except OSError:
-                    pass
+                _write_heartbeat(
+                    settings, args, "ok", seconds=round(elapsed, 1), interval=interval
+                )
         except KeyboardInterrupt:
             print("stopped")
             return 0
@@ -1005,22 +1008,36 @@ def cmd_status(args: argparse.Namespace) -> int:
     # because everything downstream of it keeps looking plausible.
     publisher = "no heartbeat yet (publish --watch writes one per cycle)"
     site_root = Path(args.site) if getattr(args, "site", None) else settings.root
-    beats: list[tuple[datetime, str, float]] = []
+    beats: list[tuple[datetime, str, float, str]] = []
     for site in ("dist", "dist-real"):
         try:
             payload = json.loads((site_root / site / ".publisher.json").read_text(encoding="utf-8"))
             moment = datetime.fromisoformat(payload["at"])
             interval_s = float(payload.get("interval") or 900)
-            beats.append((moment, site, max(600.0, interval_s * 2)))
+            beats.append(
+                (moment, site, max(600.0, interval_s * 2), str(payload.get("phase") or "ok"))
+            )
         except (OSError, ValueError, KeyError):
             continue
     publisher_age: float | None = None
     publisher_limit = 900.0
+    publisher_phase = "ok"
     if beats:
-        moment, site, publisher_limit = max(beats)
+        moment, site, publisher_limit, publisher_phase = max(beats)
         publisher_age = (datetime.now(UTC) - moment).total_seconds()
-        where = f"{publisher_age:.0f}s ago" if publisher_age < 90 else f"{publisher_age / 60:.0f} min ago"
-        verdict = "alive" if publisher_age <= publisher_limit else "STALLED"
+        where = (
+            f"{publisher_age:.0f}s ago"
+            if publisher_age < 90
+            else f"{publisher_age / 60:.0f} min ago"
+        )
+        if publisher_phase == "hung":
+            verdict = "HUNG, cycle abandoned"
+        elif publisher_phase == "started" and publisher_age > publisher_limit:
+            verdict = "HUNG, a cycle started and never finished"
+        elif publisher_age > publisher_limit:
+            verdict = "STALLED"
+        else:
+            verdict = "alive"
         publisher = f"{site}: last cycle {where} ({verdict})"
     print(f"publisher  {publisher}")
     print("")
@@ -1043,8 +1060,8 @@ def cmd_status(args: argparse.Namespace) -> int:
             stale.append(f"collector ({collector})")
         if publisher_age is None:
             stale.append("publisher (no heartbeat; is `publish --watch` running?)")
-        elif publisher_age > publisher_limit:
-            stale.append(f"publisher (last cycle {publisher_age / 60:.0f} min ago)")
+        elif publisher_age > publisher_limit or publisher_phase == "hung":
+            stale.append(f"publisher ({publisher})")
         database.close()
         if stale:
             print("", file=sys.stderr)

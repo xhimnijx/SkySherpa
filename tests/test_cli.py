@@ -194,6 +194,30 @@ def test_check_flags_a_stalled_publisher(tmp_path: Path, capsys) -> None:
     assert "publisher" in capsys.readouterr().err
 
 
+def test_check_flags_a_hung_cycle(tmp_path: Path, capsys) -> None:
+    """A cycle that started and never finished must fail the check even if it is recent."""
+    from datetime import UTC, datetime
+
+    from skysherpa.store import Database
+
+    database = Database(tmp_path / "skysherpa.sqlite3")
+    database.initialize()
+    _current_snapshot(database)
+    database.close()
+
+    site = tmp_path / "dist"
+    site.mkdir()
+    (site / ".publisher.json").write_text(
+        json.dumps(
+            {"at": datetime.now(UTC).isoformat(), "phase": "hung", "interval": 600}
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["status", "--data-dir", str(tmp_path), "--site", str(tmp_path), "--check"]) == 1
+    assert "HUNG" in capsys.readouterr().err
+
+
 def test_unknown_command_exits_nonzero() -> None:
     try:
         main(["nonsense"])
