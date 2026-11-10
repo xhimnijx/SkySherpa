@@ -18,6 +18,30 @@ from skysherpa.store import Database
 from skysherpa.verify import verify_bundle
 
 
+def test_publish_works_with_no_filed_flights(tmp_path: Path) -> None:
+    """The first publish can land before a single flight plan exists.
+
+    Controllers are being observed, so the presence matrix and the forecast are meaningful,
+    but there are no city pairs to rank. The site is expected to say "no candidate routes
+    yet" rather than fail -- this is what a fresh install serves for its first minute.
+    """
+    database = Database(tmp_path / "empty.sqlite3")
+    database.initialize()
+    end = datetime(2026, 11, 9, 22, tzinfo=UTC)
+    simulate_network(database, days=1, seed=21, end=end)  # sessions only, no flights
+    rebuild_all(database)
+
+    out = tmp_path / "dist"
+    result = build_bundle(database, out_dir=out, reference=_reference())
+    assert result.total_bytes > 0
+    assert verify_bundle(out) == []
+
+    meta = json.loads((out / "data" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["pair_count"] == 0
+    assert meta["positions_modelled"] >= 1
+    database.close()
+
+
 def test_publish_works_on_a_single_day_of_history(tmp_path: Path) -> None:
     """The first publish on the laptop happens seconds after install, on almost no data.
 
