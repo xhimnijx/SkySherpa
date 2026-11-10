@@ -18,12 +18,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from test_export import _reference
 
 from skysherpa.export import build_bundle
 from skysherpa.rollup import rebuild_all
 from skysherpa.simulate import simulate_network
 from skysherpa.store import Database
-from test_export import _reference
 
 NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[1]
