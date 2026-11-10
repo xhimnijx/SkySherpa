@@ -34,6 +34,25 @@ def data_dir(tmp_path: Path, monkeypatch) -> Path:
     return directory
 
 
+def test_python_dash_m_runs_the_package() -> None:
+    """`python -m skysherpa` is how the systemd units start it, so it must work."""
+    import os
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}
+    completed = subprocess.run(
+        [sys.executable, "-m", "skysherpa", "version"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(root),
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "skysherpa" in completed.stdout
+
+
 def test_publish_builds_a_bundle_and_verifies_it(data_dir: Path, tmp_path: Path, capsys) -> None:
     out = tmp_path / "dist"
     assert cli.main(["publish", "--data-dir", str(data_dir), "--out", str(out)]) == 0
