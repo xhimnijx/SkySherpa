@@ -1,0 +1,80 @@
+name: ci
+
+# Ubuntu is the target platform, so Ubuntu is where this is tested. The matrix runs the
+# oldest and newest supported interpreters; the end-to-end job installs the package the
+# same way ops/install-ubuntu.sh does and then exercises the whole pipeline offline.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: offline tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install the way the installer does
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      - name: unit tests
+        run: python -m pytest -q
+      - name: shell scripts parse
+        run: |
+          bash -n scripts/dev.sh
+          bash -n ops/install-ubuntu.sh
+      - name: installer dry run
+        # No user systemd manager on a runner; the dry run warns and continues.
+        run: bash ops/install-ubuntu.sh --dry-run
+      - name: launcher finds an interpreter
+        run: scripts/dev.sh version
+
+  end-to-end:
+    name: synthetic history end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: simulate, publish, verify, backtest
+        run: |
+          python -m skysherpa simulate --days 56 --force
+          python -m skysherpa publish
+          python -m skysherpa verify
+          python -m skysherpa backtest
+      - name: status reports a healthy installation
+        run: python -m skysherpa status
+
+  live:
+    name: live network checks
+    # Flaky by nature: the feed throttles. Run it by hand, not on every push.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      - run: python -m pytest -q -m network
+      - run: python -m skysherpa doctor

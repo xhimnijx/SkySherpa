@@ -136,6 +136,10 @@ systemctl --user restart skysherpa-ingest skysherpa-publish
 To run them as system services instead, copy `ops/systemd/*` to `/etc/systemd/system`, add
 `User=`, and drop `--user` from the commands.
 
+CI runs on `ubuntu-latest` for Python 3.11, 3.12 and 3.13: the offline suite, both shell
+scripts, the installer's dry run, and a full `simulate → publish → verify → backtest` cycle.
+The live-network job is manual, because the feed throttles.
+
 ## Running it by hand
 
 Any platform, for a quick look:
