@@ -7,6 +7,7 @@ as retryable *with backoff* -- never as a reason to poll harder.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import json
 import random
@@ -44,13 +45,15 @@ class Response:
         return self.body.decode("utf-8", errors="replace")
 
 
-def _retry_delay(attempt: int, retry_after: str | None, *, base: float = 0.75, cap: float = 30.0) -> float:
+def _retry_delay(
+    attempt: int, retry_after: str | None, *, base: float = 0.75, cap: float = 30.0
+) -> float:
     if retry_after:
         try:
             return min(cap, max(0.0, float(retry_after)))
         except ValueError:
             pass
-    backoff = min(cap, base * (2 ** attempt))
+    backoff = min(cap, base * (2**attempt))
     return backoff * (0.7 + random.random() * 0.6)  # full-ish jitter
 
 
@@ -85,10 +88,8 @@ def get(
                 raw = resp.read()
                 encoding = (resp.headers.get("Content-Encoding") or "").lower()
                 if encoding == "gzip" or raw[:2] == b"\x1f\x8b":
-                    try:
+                    with contextlib.suppress(OSError):
                         raw = gzip.decompress(raw)
-                    except OSError:
-                        pass
                 return Response(
                     ok=True,
                     status=getattr(resp, "status", 200),

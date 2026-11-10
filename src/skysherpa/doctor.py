@@ -40,7 +40,7 @@ def _timed(name: str, fn, *, critical: bool = True) -> Check:
         ok, detail = fn()
     except FeedError as exc:
         ok, detail = False, str(exc)
-    except Exception as exc:  # noqa: BLE001 - a health check must never crash the caller
+    except Exception as exc:
         ok, detail = False, f"{type(exc).__name__}: {exc}"
     return Check(
         name=name,
@@ -59,7 +59,9 @@ def _feed(settings: Settings) -> tuple[bool, str]:
     detail = (
         f"{snapshot.connected_clients:,} clients | {len(snapshot.pilots):,} pilots | "
         f"{len(snapshot.atc)} ATC | {len(snapshot.observers)} observers | "
-        f"{len(snapshot.atis)} ATIS | age {age:.0f}s" if age is not None else "no timestamp"
+        f"{len(snapshot.atis)} ATIS | age {age:.0f}s"
+        if age is not None
+        else "no timestamp"
     )
     if not snapshot.atc:
         return False, "feed parsed but contains no ATC positions"
@@ -121,7 +123,10 @@ def _weather(payload) -> tuple[bool, str]:
     item = payload[0] if isinstance(payload[0], dict) else {}
     if not item.get("rawOb"):
         return False, "weather schema changed (missing rawOb)"
-    return True, f"{len(payload)} station(s) | {item.get('fltCat', '?')} | {item.get('icaoId', '?')}"
+    return (
+        True,
+        f"{len(payload)} station(s) | {item.get('fltCat', '?')} | {item.get('icaoId', '?')}",
+    )
 
 
 def _taf(payload) -> tuple[bool, str]:
@@ -151,7 +156,9 @@ def run_checks(settings: Settings, *, include_weather: bool = True) -> list[Chec
     )
 
     def _vatspy_check() -> tuple[bool, str]:
-        response = net.get(ENDPOINTS["vatspy_dat"], settings, retries=1, timeout=25, accept="text/plain")
+        response = net.get(
+            ENDPOINTS["vatspy_dat"], settings, retries=1, timeout=25, accept="text/plain"
+        )
         if not response.ok:
             return False, f"{response.error} (status {response.status})"
         return _vatspy(response.text())
@@ -203,8 +210,7 @@ def render(checks: list[Check], *, now: datetime | None = None) -> str:
     for check in checks:
         status = "OK  " if check.ok else ("WARN" if not check.critical else "FAIL")
         lines.append(
-            f"  {status}  {check.name.ljust(width)}  {check.detail}"
-            f"  [{check.elapsed_ms} ms]"
+            f"  {status}  {check.name.ljust(width)}  {check.detail}  [{check.elapsed_ms} ms]"
         )
     failed = [c for c in checks if not c.ok and c.critical]
     warned = [c for c in checks if not c.ok and not c.critical]

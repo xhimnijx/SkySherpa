@@ -15,13 +15,14 @@ import json
 import os
 import struct
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .aircraft import load_catalog
-from .geo import BoundingBox, distance_nm
+from .geo import distance_nm
 from .oracle import CoverageModel, PresenceMatrix, latest_calibrator
 from .staticdata import Boundary, StaticReference
 from .store import Database
@@ -61,7 +62,7 @@ class BundleResult:
 
 def quantise(probability: float) -> int:
     """Map [0,1] to a byte. One part in 255 is far finer than the model's own error."""
-    return max(0, min(255, int(round(probability * 255))))
+    return max(0, min(255, round(probability * 255)))
 
 
 def _hourly_week(model: CoverageModel, position: str) -> list[int]:
@@ -75,9 +76,7 @@ def _hourly_week(model: CoverageModel, position: str) -> list[int]:
         for hour in range(24):
             total = 0.0
             for part in range(4):
-                total += model.predict(
-                    position, weekday, hour * 4 + part, with_interval=False
-                ).p
+                total += model.predict(position, weekday, hour * 4 + part, with_interval=False).p
             out.append(quantise(total / 4.0))
     return out
 
@@ -279,7 +278,7 @@ def build_bundle(
     def _union(lower: list[int], upper: list[int]) -> list[int]:
         return [
             quantise(1.0 - (1.0 - a / 255.0) * (1.0 - b / 255.0))
-            for a, b in zip(lower, upper)
+            for a, b in zip(lower, upper, strict=False)
         ]
 
     zeros = [0] * HOURS_PER_WEEK
@@ -407,9 +406,7 @@ def build_bundle(
                 days.add(day)
         return min(255, len(days))
 
-    fir_days = [
-        _observed_days(by_fir[code]["CTR"] + by_fir[code]["FSS"]) for code in fir_list
-    ]
+    fir_days = [_observed_days(by_fir[code]["CTR"] + by_fir[code]["FSS"]) for code in fir_list]
     airport_days = [
         _observed_days(
             by_airport[airport["icao"]]["DEL"]

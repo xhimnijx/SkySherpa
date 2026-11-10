@@ -16,11 +16,12 @@ Three rules encoded here:
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
-__all__ = ["Database", "SCHEMA_VERSION", "from_iso", "to_iso"]
+__all__ = ["SCHEMA_VERSION", "Database", "from_iso", "to_iso"]
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 SCHEMA_VERSION = 1
@@ -219,9 +220,7 @@ class Database:
             (to_iso(ended_at), duration, n_samples, session_key),
         )
 
-    def recent_session_for_callsign(
-        self, callsign: str, *, since: datetime
-    ) -> sqlite3.Row | None:
+    def recent_session_for_callsign(self, callsign: str, *, since: datetime) -> sqlite3.Row | None:
         rows = self.query(
             "SELECT * FROM controller_session WHERE callsign=? AND ended_at>=? "
             "ORDER BY ended_at DESC LIMIT 1",
@@ -361,10 +360,13 @@ class Database:
                 last_seen=last_seen or before,
                 off_block=off_block,
                 on_block=last_seen,
-                n_track_points=int(self.scalar(
-                    "SELECT COUNT(*) FROM flight_track WHERE flight_id=?",
-                    (row["flight_id"],),
-                ) or 0),
+                n_track_points=int(
+                    self.scalar(
+                        "SELECT COUNT(*) FROM flight_track WHERE flight_id=?",
+                        (row["flight_id"],),
+                    )
+                    or 0
+                ),
             )
         return len(rows)
 

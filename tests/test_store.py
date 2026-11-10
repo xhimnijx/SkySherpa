@@ -6,9 +6,9 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from factories import when
 
 from skysherpa.store import Database, from_iso, to_iso
-from factories import when
 
 
 @pytest.fixture()

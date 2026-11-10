@@ -18,8 +18,7 @@ ENDPOINTS: dict[str, str] = {
     "atc_online": "https://api.vatsim.net/v2/atc/online",
     "atc_history": "https://api.vatsim.net/v2/atc/history",
     "vatspy_dat": (
-        "https://raw.githubusercontent.com/vatsimnetwork/"
-        "vatspy-data-project/master/VATSpy.dat"
+        "https://raw.githubusercontent.com/vatsimnetwork/vatspy-data-project/master/VATSpy.dat"
     ),
     "boundaries": (
         "https://raw.githubusercontent.com/vatsimnetwork/"

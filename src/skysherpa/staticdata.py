@@ -195,7 +195,9 @@ class StaticReference:
                 for candidate in fir_polygons:
                     if not candidate.bbox.contains(boundary.label_lat, boundary.label_lon):
                         continue
-                    if point_in_geometry(boundary.label_lat, boundary.label_lon, candidate.geometry):
+                    if point_in_geometry(
+                        boundary.label_lat, boundary.label_lon, candidate.geometry
+                    ):
                         inside.add(candidate.code)
             if inside:
                 # A polygon that sits geometrically inside other FIRs is covered by
@@ -235,9 +237,10 @@ class StaticReference:
         ]
         best: Boundary | None = None
         for boundary in candidates:
-            if point_in_geometry(lat, lon, boundary.geometry):
-                if best is None or boundary.area_hint < best.area_hint:
-                    best = boundary
+            if point_in_geometry(lat, lon, boundary.geometry) and (
+                best is None or boundary.area_hint < best.area_hint
+            ):
+                best = boundary
         return best
 
     def fir_at(self, lat: float, lon: float) -> str | None:
@@ -381,6 +384,4 @@ def load_reference(settings: Settings, *, refresh: bool = False) -> StaticRefere
         boundaries = StaticReference.parse_boundaries(json.loads(geo_bytes))
     except (json.JSONDecodeError, UnicodeDecodeError):
         boundaries = []
-    return StaticReference(
-        airports=reference.airports, firs=reference.firs, boundaries=boundaries
-    )
+    return StaticReference(airports=reference.airports, firs=reference.firs, boundaries=boundaries)

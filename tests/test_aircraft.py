@@ -34,8 +34,28 @@ def test_all_classes_are_represented(catalog) -> None:
 
 @pytest.mark.parametrize(
     "icao",
-    ["A20N", "A320", "A321", "A359", "B738", "B38M", "B77W", "B78X", "E195", "CRJ9",
-     "AT76", "DH8D", "C172", "SR22", "B350", "C25C", "A388", "CONC", "EC45", "C130"],
+    [
+        "A20N",
+        "A320",
+        "A321",
+        "A359",
+        "B738",
+        "B38M",
+        "B77W",
+        "B78X",
+        "E195",
+        "CRJ9",
+        "AT76",
+        "DH8D",
+        "C172",
+        "SR22",
+        "B350",
+        "C25C",
+        "A388",
+        "CONC",
+        "EC45",
+        "C130",
+    ],
 )
 def test_key_types_present(catalog, icao: str) -> None:
     assert catalog.get(icao) is not None, icao

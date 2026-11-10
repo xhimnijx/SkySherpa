@@ -61,7 +61,7 @@ def test_browser_block_time_matches_python(tmp_path: Path) -> None:
         assert aircraft is not None
         python_times = [aircraft.estimate_block_minutes(nm) for nm in distances]
         javascript_times = data["block_times"][airframe["icao"]]
-        for nm, py, js in zip(distances, python_times, javascript_times):
+        for nm, py, js in zip(distances, python_times, javascript_times, strict=False):
             assert abs(py - js) <= 1, f"{airframe['icao']} at {nm} nm: python {py} vs js {js}"
 
 

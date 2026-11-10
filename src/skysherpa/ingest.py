@@ -386,7 +386,9 @@ class Ingestor:
     def _finish_flight(self, active: _ActiveFlight, ts: datetime) -> None:
         if active.track:
             points = [(row[1], row[2]) for row in active.track]
-            kept = [active.track[i] for i in rdp_keep_indices(points, self.config.track_tolerance_nm)]
+            kept = [
+                active.track[i] for i in rdp_keep_indices(points, self.config.track_tolerance_nm)
+            ]
         else:
             kept = []
         self.db.append_track(active.flight_id, kept)

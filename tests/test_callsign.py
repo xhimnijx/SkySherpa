@@ -33,7 +33,9 @@ from skysherpa.callsign import FacilityType, is_observer_like, parse
         ("DLH489", 0, FacilityType.OBSERVER, True),
     ],
 )
-def test_observed_callsigns(callsign: str, code: int, facility: FacilityType, observer: bool) -> None:
+def test_observed_callsigns(
+    callsign: str, code: int, facility: FacilityType, observer: bool
+) -> None:
     position = parse(callsign, code)
     assert position.facility is facility
     assert position.is_observer is observer

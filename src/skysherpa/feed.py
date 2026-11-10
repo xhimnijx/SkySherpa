@@ -13,8 +13,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from . import net
+from .callsign import Position
+from .callsign import parse as parse_callsign
 from .config import ENDPOINTS, Settings
-from .callsign import Position, parse as parse_callsign
 
 __all__ = [
     "Atis",

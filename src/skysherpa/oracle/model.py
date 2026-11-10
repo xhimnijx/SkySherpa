@@ -121,9 +121,7 @@ class PresenceMatrix:
                 day = date.fromisoformat(row["day"])
             except (TypeError, ValueError):
                 continue
-            matrix[str(row["position_key"])].append(
-                (day, int(row["slot"]), int(row["online"]))
-            )
+            matrix[str(row["position_key"])].append((day, int(row["slot"]), int(row["online"])))
         return cls(days=dict(matrix))
 
     @property
@@ -193,10 +191,7 @@ def _method_of_moments(pairs: list[tuple[float, float]]) -> tuple[float, float]:
         return (1.0, 1.0)
     mean = sum(rates) / len(rates)
     var = sum((rate - mean) ** 2 for rate in rates) / len(rates)
-    if var <= 1e-9:
-        strength = 20.0
-    else:
-        strength = mean * (1.0 - mean) / var - 1.0
+    strength = 20.0 if var <= 1e-09 else mean * (1.0 - mean) / var - 1.0
     strength = max(0.5, min(60.0, strength))
     return (max(0.5, mean * strength), max(0.5, (1.0 - mean) * strength))
 
@@ -310,10 +305,7 @@ class CoverageModel:
             return table[slot]
 
         global_prior = _method_of_moments(
-            [
-                (sum(sum(row) for row in k), sum(sum(row) for row in n))
-                for k, n in raw.values()
-            ]
+            [(sum(sum(row) for row in k), sum(sum(row) for row in n)) for k, n in raw.values()]
         )
 
         # --- posteriors ---
@@ -337,7 +329,9 @@ class CoverageModel:
                 sum(smoothed_n[weekday][slot] for weekday in range(WEEKDAYS))
                 for slot in range(SLOTS)
             ]
-            pooled_slot = [(k / n) if n > 0 else pooled for k, n in zip(column_k, column_n)]
+            pooled_slot = [
+                (k / n) if n > 0 else pooled for k, n in zip(column_k, column_n, strict=False)
+            ]
 
             alpha = [[0.0] * SLOTS for _ in range(WEEKDAYS)]
             beta = [[0.0] * SLOTS for _ in range(WEEKDAYS)]
@@ -443,7 +437,7 @@ class Calibrator:
             return self.knots[0][1]
         if p >= self.knots[-1][0]:
             return self.knots[-1][1]
-        for (x0, y0), (x1, y1) in zip(self.knots, self.knots[1:]):
+        for (x0, y0), (x1, y1) in zip(self.knots, self.knots[1:], strict=False):
             if x0 <= p <= x1:
                 if x1 == x0:
                     return y1

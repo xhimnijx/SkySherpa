@@ -10,13 +10,14 @@ The salt is generated once, on this machine, and never leaves it.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import os
 import secrets
 from pathlib import Path
 
-__all__ = ["Identity", "ANON"]
+__all__ = ["ANON", "Identity"]
 
 ANON = "anon"
 
@@ -39,10 +40,8 @@ class Identity:
         salt = secrets.token_bytes(32)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(salt.hex(), encoding="ascii")
-        try:  # best effort on POSIX; a no-op on Windows
+        with contextlib.suppress(OSError):  # best effort on POSIX; a no-op on Windows
             os.chmod(path, 0o600)
-        except OSError:
-            pass
         return cls(salt)
 
     @classmethod

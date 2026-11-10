@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from factories import controller, flight_plan, pilot, snapshot, stamp, when
+
 from skysherpa.identity import Identity
 from skysherpa.ingest import IngestConfig, Ingestor
 from skysherpa.store import Database, to_iso

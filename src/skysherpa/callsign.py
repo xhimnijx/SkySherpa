@@ -25,8 +25,8 @@ from enum import StrEnum
 
 __all__ = [
     "FACILITY_BY_CODE",
-    "Position",
     "FacilityType",
+    "Position",
     "is_observer_like",
     "parse",
 ]

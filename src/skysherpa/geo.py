@@ -49,7 +49,9 @@ def destination(point: Point, bearing_deg: float, distance: float) -> Point:
     lat1, lon1 = math.radians(point[0]), math.radians(point[1])
     brg = math.radians(bearing_deg)
     angular = distance / EARTH_RADIUS_NM
-    sin_lat2 = math.sin(lat1) * math.cos(angular) + math.cos(lat1) * math.sin(angular) * math.cos(brg)
+    sin_lat2 = math.sin(lat1) * math.cos(angular) + math.cos(lat1) * math.sin(angular) * math.cos(
+        brg
+    )
     lat2 = math.asin(max(-1.0, min(1.0, sin_lat2)))
     lon2 = lon1 + math.atan2(
         math.sin(brg) * math.sin(angular) * math.cos(lat1),

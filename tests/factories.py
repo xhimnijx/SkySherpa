@@ -21,8 +21,10 @@ def stamp(hour: int, minute: int = 0, second: int = 0, day: str = DAY) -> str:
 
 
 def when(hour: int, minute: int = 0, second: int = 0, day: str = DAY) -> datetime:
-    return datetime(2026, 11, 9, hour, minute, second, tzinfo=UTC) if day == DAY else (
-        datetime.fromisoformat(f"{day}T{hour:02d}:{minute:02d}:{second:02d}+00:00")
+    return (
+        datetime(2026, 11, 9, hour, minute, second, tzinfo=UTC)
+        if day == DAY
+        else (datetime.fromisoformat(f"{day}T{hour:02d}:{minute:02d}:{second:02d}+00:00"))
     )
 
 

@@ -312,4 +312,3 @@ def test_launchers_do_not_assume_a_python_binary() -> None:
         stripped = line.strip()
         if stripped.startswith(("python ", "PYTHONPATH=src python ")):
             raise AssertionError(f"Makefile hardcodes an interpreter: {stripped}")
-

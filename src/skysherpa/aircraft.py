@@ -29,14 +29,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
-    "AircraftCatalog",
-    "AircraftType",
-    "AircraftVariant",
     "CLASSES",
     "ENGINES",
     "FIDELITY",
     "SIMS",
     "WAKES",
+    "AircraftCatalog",
+    "AircraftType",
+    "AircraftVariant",
     "estimate_block_minutes",
     "load_catalog",
 ]

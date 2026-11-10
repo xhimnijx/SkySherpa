@@ -116,9 +116,9 @@ def test_boundaries_parse_and_lookup() -> None:
     boundaries = StaticReference.parse_boundaries(BOUNDARIES)
     reference = StaticReference(boundaries=boundaries)
     assert len(boundaries) == 3
-    assert reference.fir_at(51.0, 1.0) == "EGTT"       # inside EGTT and EGPX
-    assert reference.fir_at(54.0, 0.0) == "EGPX"       # only EGPX
-    assert reference.fir_at(50.0, 8.5) == "EDGG"       # MultiPolygon
+    assert reference.fir_at(51.0, 1.0) == "EGTT"  # inside EGTT and EGPX
+    assert reference.fir_at(54.0, 0.0) == "EGPX"  # only EGPX
+    assert reference.fir_at(50.0, 8.5) == "EDGG"  # MultiPolygon
     assert reference.fir_at(0.0, 0.0) is None
 
 
@@ -175,9 +175,7 @@ SUBSECTOR_GEO = {
             "properties": {"id": "EGTT-C", "label_lat": 51.0, "label_lon": 1.0},
             "geometry": {
                 "type": "Polygon",
-                "coordinates": [
-                    [[0.5, 50.5], [1.5, 50.5], [1.5, 51.5], [0.5, 51.5], [0.5, 50.5]]
-                ],
+                "coordinates": [[[0.5, 50.5], [1.5, 50.5], [1.5, 51.5], [0.5, 51.5], [0.5, 50.5]]],
             },
         },
         {
@@ -185,9 +183,7 @@ SUBSECTOR_GEO = {
             "properties": {"id": "EGTL", "label_lat": 51.2, "label_lon": 0.8},
             "geometry": {
                 "type": "Polygon",
-                "coordinates": [
-                    [[0.6, 50.6], [1.0, 50.6], [1.0, 51.0], [0.6, 51.0], [0.6, 50.6]]
-                ],
+                "coordinates": [[[0.6, 50.6], [1.0, 50.6], [1.0, 51.0], [0.6, 51.0], [0.6, 50.6]]],
             },
         },
     ],

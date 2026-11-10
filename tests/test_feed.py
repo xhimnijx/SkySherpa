@@ -128,7 +128,7 @@ def test_pilot_flight_plan_parsed() -> None:
     assert (plan.departure, plan.arrival) == ("EGLL", "LEPA")
     assert plan.aircraft_short == "A20N"
     assert plan.cruise_altitude_ft == 35000
-    assert plan.enroute_minutes == 608      # "1008" is 10h08m, not 08:10
+    assert plan.enroute_minutes == 608  # "1008" is 10h08m, not 08:10
     assert plan.fuel_minutes == 733
     assert plan.is_complete
 

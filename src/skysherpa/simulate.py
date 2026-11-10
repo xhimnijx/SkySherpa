@@ -127,7 +127,9 @@ def simulate_network(
 
     result = SimResult(days=days, positions=len(network))
     for spec in network:
-        _ensure_position(db, spec, datetime.combine(start_day, datetime.min.time(), tzinfo=end.tzinfo), end)
+        _ensure_position(
+            db, spec, datetime.combine(start_day, datetime.min.time(), tzinfo=end.tzinfo), end
+        )
 
     for offset in range(days):
         day = start_day + timedelta(days=offset)
@@ -135,9 +137,12 @@ def simulate_network(
         for spec in network:
             if weekday not in spec.weekdays:
                 continue
-            if dropout_after_days is not None and spec.callsign == "LON_S_CTR":
-                if offset > dropout_after_days:
-                    continue
+            if (
+                dropout_after_days is not None
+                and spec.callsign == "LON_S_CTR"
+                and offset > dropout_after_days
+            ):
+                continue
             if rng.random() > spec.reliability:
                 continue
 

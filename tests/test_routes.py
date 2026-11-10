@@ -41,7 +41,7 @@ def test_classify(token: str, kind: TokenKind) -> None:
 
 def test_real_route_shape() -> None:
     route = parse_route(REAL_ROUTE)
-    assert route.n_procedures == 1          # the FQMA departure
+    assert route.n_procedures == 1  # the FQMA departure
     assert route.has_direct
     assert route.n_airways >= 8
     assert route.n_fixes >= 10

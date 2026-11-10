@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import timedelta
 
 from .model import Calibrator, CoverageModel, ModelParams, PresenceMatrix
 
@@ -61,7 +61,11 @@ class BacktestReport:
             ("brier skill >= 0.25", self.brier_skill >= 0.25, f"{self.brier_skill:.3f}"),
             ("calibration error <= 0.05", self.ece <= 0.05, f"{self.ece:.3f}"),
             ("auc >= 0.80", self.auc >= 0.80, f"{self.auc:.3f}"),
-            ("interval coverage >= 0.85", self.interval_coverage >= 0.85, f"{self.interval_coverage:.3f}"),
+            (
+                "interval coverage >= 0.85",
+                self.interval_coverage >= 0.85,
+                f"{self.interval_coverage:.3f}",
+            ),
         ]
 
 
@@ -80,7 +84,7 @@ def _auc(samples: list[tuple[float, int]]) -> float:
         average_rank = (index + end) / 2.0 + 1.0
         ranks.extend([average_rank] * (end - index + 1))
         index = end + 1
-    rank_sum = sum(rank for rank, (_, y) in zip(ranks, ordered) if y == 1)
+    rank_sum = sum(rank for rank, (_, y) in zip(ranks, ordered, strict=False) if y == 1)
     return (rank_sum - positives * (positives + 1) / 2.0) / (positives * negatives)
 
 
@@ -114,9 +118,7 @@ def _reliability(
     return ece, worst, rows
 
 
-def _beta_binomial_interval(
-    a: float, b: float, n: int, q: float = 0.90
-) -> tuple[int, int]:
+def _beta_binomial_interval(a: float, b: float, n: int, q: float = 0.90) -> tuple[int, int]:
     """Predictive interval for the *count* of online days out of ``n``.
 
     The model's posterior is on the underlying rate; what we can actually observe is a
@@ -180,8 +182,7 @@ def latest_calibrator(
     last_day = days[-1]
     cutoff = last_day - timedelta(days=horizon_days)
     training_rows = {
-        position: [row for row in rows if row[0] < cutoff]
-        for position, rows in matrix.days.items()
+        position: [row for row in rows if row[0] < cutoff] for position, rows in matrix.days.items()
     }
     training = PresenceMatrix(
         days={position: rows for position, rows in training_rows.items() if rows}

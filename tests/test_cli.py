@@ -76,6 +76,8 @@ def test_status_prints_the_blocking_items(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "readiness" in out
     assert "waiting on" in out
+
+
 def test_status_flags_a_stalled_collector(tmp_path: Path, capsys) -> None:
     """A dead ingestor must not look like a healthy database.
 
@@ -208,9 +210,7 @@ def test_check_flags_a_hung_cycle(tmp_path: Path, capsys) -> None:
     site = tmp_path / "dist"
     site.mkdir()
     (site / ".publisher.json").write_text(
-        json.dumps(
-            {"at": datetime.now(UTC).isoformat(), "phase": "hung", "interval": 600}
-        ),
+        json.dumps({"at": datetime.now(UTC).isoformat(), "phase": "hung", "interval": 600}),
         encoding="utf-8",
     )
 

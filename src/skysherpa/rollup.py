@@ -32,8 +32,8 @@ from .store import Database, from_iso
 
 __all__ = [
     "RollupResult",
-    "rebuild_all",
     "rebuild_airport_hourly",
+    "rebuild_all",
     "rebuild_pairs",
     "rebuild_route_variants",
     "rebuild_slots",
@@ -244,16 +244,14 @@ def rebuild_airport_hourly(db: Database) -> int:
     )
 
     for row in db.query(
-        "SELECT dep_icao, off_block FROM flight "
-        "WHERE off_block IS NOT NULL AND dep_icao <> ''"
+        "SELECT dep_icao, off_block FROM flight WHERE off_block IS NOT NULL AND dep_icao <> ''"
     ):
         hour = _hour_bucket(row["off_block"])
         if hour:
             buckets[(str(row["dep_icao"]), hour)]["departures"] += 1
 
     for row in db.query(
-        "SELECT arr_icao, on_block FROM flight "
-        "WHERE on_block IS NOT NULL AND arr_icao <> ''"
+        "SELECT arr_icao, on_block FROM flight WHERE on_block IS NOT NULL AND arr_icao <> ''"
     ):
         hour = _hour_bucket(row["on_block"])
         if hour:

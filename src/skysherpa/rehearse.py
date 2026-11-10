@@ -29,16 +29,46 @@ __all__ = ["RehearsalReport", "build_network", "run_rehearsal"]
 
 #: (airport, FIR) pairs, roughly the busiest corners of the network.
 AIRPORTS: tuple[tuple[str, str], ...] = (
-    ("EGLL", "EGTT"), ("EGKK", "EGTT"), ("EGPH", "EGPX"), ("EIDW", "EISN"),
-    ("EDDF", "EDGG"), ("EDDM", "EDMM"), ("EDDH", "EDWW"), ("EDDK", "EDGG"),
-    ("EHAM", "EHAA"), ("LFPG", "LFFF"), ("LFLL", "LFMM"), ("LSZH", "LSAS"),
-    ("LOWW", "LOVV"), ("LEMD", "LECM"), ("LEBL", "LECB"), ("LIRF", "LIRR"),
-    ("LIMC", "LIMM"), ("EKCH", "EKDK"), ("ENGM", "ENOR"), ("ESSA", "ESOS"),
-    ("EFHK", "EFIN"), ("EPWA", "EPWW"), ("LKPR", "LKAA"), ("LPPT", "LPPC"),
-    ("LGAV", "LGGG"), ("LTFM", "LTAA"), ("OMDB", "OMAE"), ("KJFK", "KZNY"),
-    ("KBOS", "KZBW"), ("KATL", "KZTL"), ("KMIA", "KZMA"), ("KORD", "KZAU"),
-    ("KDFW", "KZFW"), ("KDEN", "KZDV"), ("KLAX", "KZLA"), ("KSFO", "KZOA"),
-    ("KSEA", "KZSE"), ("CYYZ", "CZYZ"), ("KPHX", "KZAB"), ("KBNA", "KZME"),
+    ("EGLL", "EGTT"),
+    ("EGKK", "EGTT"),
+    ("EGPH", "EGPX"),
+    ("EIDW", "EISN"),
+    ("EDDF", "EDGG"),
+    ("EDDM", "EDMM"),
+    ("EDDH", "EDWW"),
+    ("EDDK", "EDGG"),
+    ("EHAM", "EHAA"),
+    ("LFPG", "LFFF"),
+    ("LFLL", "LFMM"),
+    ("LSZH", "LSAS"),
+    ("LOWW", "LOVV"),
+    ("LEMD", "LECM"),
+    ("LEBL", "LECB"),
+    ("LIRF", "LIRR"),
+    ("LIMC", "LIMM"),
+    ("EKCH", "EKDK"),
+    ("ENGM", "ENOR"),
+    ("ESSA", "ESOS"),
+    ("EFHK", "EFIN"),
+    ("EPWA", "EPWW"),
+    ("LKPR", "LKAA"),
+    ("LPPT", "LPPC"),
+    ("LGAV", "LGGG"),
+    ("LTFM", "LTAA"),
+    ("OMDB", "OMAE"),
+    ("KJFK", "KZNY"),
+    ("KBOS", "KZBW"),
+    ("KATL", "KZTL"),
+    ("KMIA", "KZMA"),
+    ("KORD", "KZAU"),
+    ("KDFW", "KZFW"),
+    ("KDEN", "KZDV"),
+    ("KLAX", "KZLA"),
+    ("KSFO", "KZOA"),
+    ("KSEA", "KZSE"),
+    ("CYYZ", "CZYZ"),
+    ("KPHX", "KZAB"),
+    ("KBNA", "KZME"),
 )
 
 
@@ -92,14 +122,24 @@ def build_network(airports: int, seed: int = 7) -> tuple[SimPosition, ...]:
         start = rng.choice([14, 15, 16, 17])
         specs.append(
             SimPosition(
-                f"{airport}_TWR", 4, tuple(range(7)), start, rng.uniform(3.5, 6.0),
-                rng.uniform(0.5, 0.85), fir,
+                f"{airport}_TWR",
+                4,
+                tuple(range(7)),
+                start,
+                rng.uniform(3.5, 6.0),
+                rng.uniform(0.5, 0.85),
+                fir,
             )
         )
         specs.append(
             SimPosition(
-                f"{airport}_APP", 5, tuple(range(5)), start, rng.uniform(3.0, 5.0),
-                rng.uniform(0.35, 0.7), fir,
+                f"{airport}_APP",
+                5,
+                tuple(range(5)),
+                start,
+                rng.uniform(3.0, 5.0),
+                rng.uniform(0.35, 0.7),
+                fir,
             )
         )
     for fir in sorted({fir for _, fir in chosen}):
@@ -127,9 +167,7 @@ def run_rehearsal(
 
     started = time.monotonic()
     simulation = simulate_network(database, days=days, seed=seed, end=end, network=network)
-    flights = simulate_flights(
-        database, days=days, per_day=flights_per_day, seed=seed + 1, end=end
-    )
+    flights = simulate_flights(database, days=days, per_day=flights_per_day, seed=seed + 1, end=end)
     report.simulate_seconds = time.monotonic() - started
     report.sessions = simulation.sessions
     report.flights = flights
@@ -137,9 +175,7 @@ def run_rehearsal(
     started = time.monotonic()
     rebuild_all(database)
     report.rollup_seconds = time.monotonic() - started
-    report.presence_rows = int(
-        database.scalar("SELECT COUNT(*) FROM position_slot") or 0
-    )
+    report.presence_rows = int(database.scalar("SELECT COUNT(*) FROM position_slot") or 0)
     # The second pass is what a fifteen-minute publish actually pays: only the tail of
     # history is recomputed. The first pass is the one-off backfill.
     started = time.monotonic()
@@ -148,7 +184,7 @@ def run_rehearsal(
 
     matrix = PresenceMatrix.from_db(database)
     started = time.monotonic()
-    model = CoverageModel.fit(matrix, reference_date=end.date())
+    CoverageModel.fit(matrix, reference_date=end.date())
     report.model_seconds = time.monotonic() - started
 
     started = time.monotonic()

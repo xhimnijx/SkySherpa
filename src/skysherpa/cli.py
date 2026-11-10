@@ -8,6 +8,7 @@ where the aircraft are and where the controllers are.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import platform
 import signal
@@ -176,7 +177,8 @@ def _sniff_payload(
             "with_plan": routes.with_plan,
             "complete": routes.complete,
             "top_pairs": [
-                {"dep": dep, "arr": arr, "count": n} for (dep, arr), n in routes.pairs.most_common(8)
+                {"dep": dep, "arr": arr, "count": n}
+                for (dep, arr), n in routes.pairs.most_common(8)
             ],
             "top_departures": [
                 {"icao": icao, "count": n} for icao, n in routes.departures.most_common(8)
@@ -360,10 +362,7 @@ def _print_aircraft(aircraft, catalog: AircraftCatalog) -> int:
         print(f"  runway     {aircraft.min_runway_ft:>8,} ft")
     else:
         print("  runway          n/a   (helicopter)")
-    print(
-        f"  taxi       {aircraft.taxi_min:>8,} min"
-        f"   (ground allowance, both ends)"
-    )
+    print(f"  taxi       {aircraft.taxi_min:>8,} min   (ground allowance, both ends)")
     print(f"  confidence {aircraft.confidence:>8}")
     if aircraft.notes:
         print(f"  notes      {aircraft.notes}")
@@ -436,14 +435,14 @@ def cmd_aircraft(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    classes = ", ".join(
-        f"{name} {count}" for name, count in sorted(catalog.class_counts().items())
-    )
+    classes = ", ".join(f"{name} {count}" for name, count in sorted(catalog.class_counts().items()))
     print(
         f"{len(catalog.types)} aircraft types | {len(catalog.variants)} add-on variants | {classes}"
     )
     print("")
-    print(f"  {'ICAO':<5} {'AIRCRAFT':<34} {'CLASS':<11} {'WAKE':<5} {'RANGE':>6} {'TAS':>5} {'ADD-ON':>7}")
+    print(
+        f"  {'ICAO':<5} {'AIRCRAFT':<34} {'CLASS':<11} {'WAKE':<5} {'RANGE':>6} {'TAS':>5} {'ADD-ON':>7}"
+    )
     limit = args.limit if args.limit > 0 else len(results)
     for aircraft in results[:limit]:
         count = len(catalog.variants_for(aircraft.icao))
@@ -527,7 +526,7 @@ def cmd_fleet(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------- persistence
 
 
-def _raise_interrupt(signum: int, frame: object) -> None:  # noqa: ARG001
+def _raise_interrupt(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
@@ -541,10 +540,9 @@ def _install_shutdown_handler() -> None:
     """
     if threading.current_thread() is not threading.main_thread():
         return
-    try:
+    with contextlib.suppress(ValueError, OSError, AttributeError):
+        # Best effort: some platforms and non-main threads refuse signal handlers.
         signal.signal(signal.SIGTERM, _raise_interrupt)
-    except (ValueError, OSError, AttributeError):  # pragma: no cover - platform dependent
-        pass
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -592,10 +590,7 @@ def cmd_db(args: argparse.Namespace) -> int:
     print(f"  {'snapshots':<14}{stats['snapshots']:>9,}   {first} -> {last} ({span})")
     print(f"  {'positions':<14}{stats['positions']:>9,}")
     print(f"  {'sessions':<14}{stats['sessions']:>9,}   {stats['atc_hours']:.1f} h of ATC observed")
-    print(
-        f"  {'flights':<14}{stats['flights']:>9,}"
-        f"   mean block {stats['block_min_avg']:.0f} min"
-    )
+    print(f"  {'flights':<14}{stats['flights']:>9,}   mean block {stats['block_min_avg']:.0f} min")
     print(f"  {'track points':<14}{stats['track_points']:>9,}")
     print(f"  {'gaps':<14}{stats['gaps']:>9,}")
     if stats["snapshots"] == 0:
@@ -680,7 +675,8 @@ def _select_positions(database: Database, args: argparse.Namespace) -> list[str]
         clauses.append(f"facility IN ({','.join('?' for _ in facilities)})")
         params.extend(facilities)
     query = (
-        "SELECT position_key FROM position WHERE " + " AND ".join(clauses)
+        "SELECT position_key FROM position WHERE "
+        + " AND ".join(clauses)
         + " ORDER BY position_key"
     )
     return [str(row["position_key"]) for row in database.query(query, params)]
@@ -716,10 +712,13 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         for hour in range(24):
             total = 0.0
             for position in positions:
-                p_hour = sum(
-                    model.predict(position, weekday, hour * 4 + part, with_interval=False).p
-                    for part in range(4)
-                ) / 4.0
+                p_hour = (
+                    sum(
+                        model.predict(position, weekday, hour * 4 + part, with_interval=False).p
+                        for part in range(4)
+                    )
+                    / 4.0
+                )
                 total += p_hour
             grid[weekday][hour] = total / len(positions)
 
@@ -765,8 +764,7 @@ def cmd_coverage(args: argparse.Namespace) -> int:
             ),
         )
         print(
-            f"  {position:<12} mean {scoring[position] * 100:5.1f}%   "
-            f"peak {peak_hour:02d}:00 UTC"
+            f"  {position:<12} mean {scoring[position] * 100:5.1f}%   peak {peak_hour:02d}:00 UTC"
         )
     return 0
 
@@ -798,9 +796,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         return 1
 
     print(f"rolling-origin backtest - {report.folds} folds x {args.horizon} days")
-    print(
-        f"  {report.predictions:,} held-out predictions across {report.positions} positions"
-    )
+    print(f"  {report.predictions:,} held-out predictions across {report.positions} positions")
     print("")
     print(f"  {'brier':<22}{report.brier:.4f}   baseline {report.brier_baseline:.4f}")
     print(f"  {'brier skill':<22}{report.brier_skill:.4f}")
@@ -840,7 +836,9 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
     try:
         reference = load_reference(settings)
     except RuntimeError as exc:
-        print(f"warning: no static reference ({exc}); airports and map will be empty", file=sys.stderr)
+        print(
+            f"warning: no static reference ({exc}); airports and map will be empty", file=sys.stderr
+        )
 
     # Publishing without rolling up first is the classic footgun: the bundle would be
     # built from stale aggregates. Do it here unless explicitly told not to.
@@ -884,7 +882,7 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
 
     print("")
     print(f"  serve:  python -m http.server 8080 --directory {out}")
-    print(f"  open:   http://127.0.0.1:8080/")
+    print("  open:   http://127.0.0.1:8080/")
     return 0
 
 
@@ -934,15 +932,15 @@ def cmd_publish(args: argparse.Namespace) -> int:
                 _write_heartbeat(settings, args, "hung", interval=interval)
             else:
                 elapsed = time.monotonic() - started
-                print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
-                      f"{elapsed:.1f}s", flush=True)
-                _write_heartbeat(
-                    settings, args, "ok", seconds=round(elapsed, 1), interval=interval
+                print(
+                    f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in {elapsed:.1f}s",
+                    flush=True,
                 )
+                _write_heartbeat(settings, args, "ok", seconds=round(elapsed, 1), interval=interval)
         except KeyboardInterrupt:
             print("stopped")
             return 0
-        except Exception as exc:  # noqa: BLE001 - a watch loop must survive one bad build
+        except Exception as exc:
             print(f"publish failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
             time.sleep(interval)
@@ -1019,11 +1017,15 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 0
 
     print(f"database   {stats['path']}")
-    print(f"           {stats['bytes'] / 1_048_576:.1f} MB | {stats['snapshots']:,} snapshots | "
-          f"{stats['gaps']:,} gaps")
+    print(
+        f"           {stats['bytes'] / 1_048_576:.1f} MB | {stats['snapshots']:,} snapshots | "
+        f"{stats['gaps']:,} gaps"
+    )
     print(f"history    {first} to {last} ({stats['span_hours']:.1f} h)")
-    print(f"observed   {stats['positions']:,} positions | {stats['atc_hours']:.0f} h of ATC | "
-          f"{stats['flights']:,} flights")
+    print(
+        f"observed   {stats['positions']:,} positions | {stats['atc_hours']:.0f} h of ATC | "
+        f"{stats['flights']:,} flights"
+    )
     print(f"matrix     {observations:,} presence slots over {days} day(s)")
     print(f"collector  {collector}")
 
@@ -1130,9 +1132,7 @@ def cmd_prune(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     try:
-        result = prune_history(
-            database, keep_days=args.keep_days, dry_run=args.dry_run
-        )
+        result = prune_history(database, keep_days=args.keep_days, dry_run=args.dry_run)
     finally:
         database.close()
     suffix = " (dry run)" if args.dry_run else ""
@@ -1197,9 +1197,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_route.add_argument("route")
     p_route.set_defaults(func=cmd_parse_route)
 
-    p_aircraft = sub.add_parser(
-        "aircraft", parents=[common], help="browse the aircraft catalogue"
-    )
+    p_aircraft = sub.add_parser("aircraft", parents=[common], help="browse the aircraft catalogue")
     p_aircraft.add_argument("icao", nargs="?", help="show one type in detail")
     p_aircraft.add_argument("--class", dest="aircraft_class", choices=sorted(CLASSES))
     p_aircraft.add_argument("--engine", choices=sorted(ENGINES))
@@ -1297,9 +1295,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cov.add_argument("--json", action="store_true")
     p_cov.set_defaults(func=cmd_coverage)
 
-    p_bt = sub.add_parser(
-        "backtest", parents=[common], help="rolling-origin forecast evaluation"
-    )
+    p_bt = sub.add_parser("backtest", parents=[common], help="rolling-origin forecast evaluation")
     p_bt.add_argument("--folds", type=int, default=4)
     p_bt.add_argument("--horizon", type=int, default=7)
     p_bt.add_argument("--bins", action="store_true", help="print the reliability diagram")
@@ -1337,9 +1333,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_pub.set_defaults(func=cmd_publish)
 
-    sub.add_parser("version", parents=[common], help="print version").set_defaults(
-        func=cmd_version
-    )
+    sub.add_parser("version", parents=[common], help="print version").set_defaults(func=cmd_version)
     sub.add_parser("init", parents=[common], help="create the data directory").set_defaults(
         func=cmd_init
     )

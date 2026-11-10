@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 
 import pytest
@@ -62,7 +63,7 @@ def test_interpolate_spacing_and_endpoints() -> None:
     points = interpolate(LHR, JFK, 100.0)
     assert points[0] == LHR
     assert points[-1] == JFK
-    for a, b in zip(points, points[1:]):
+    for a, b in itertools.pairwise(points):
         assert distance_nm(a, b) <= 100.0 + 1e-6
 
 
