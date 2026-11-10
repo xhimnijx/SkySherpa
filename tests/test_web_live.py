@@ -4,6 +4,9 @@ Fetched from the browser in production; exercised here with synthetic live data 
 blend and its decay are pinned down. The properties that matter are directional: a live
 centre must raise its FIR, a live tower must raise the layers it covers and not the ones
 it does not, and the effect must be gone by the time the flight is well clear.
+
+The bundle is built here rather than read from `dist/`, so these run in CI, where nothing
+has been published.
 """
 
 from __future__ import annotations
@@ -11,24 +14,47 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from skysherpa.export import build_bundle
+from skysherpa.rollup import rebuild_all
+from skysherpa.simulate import simulate_network
+from skysherpa.store import Database
+from test_export import _reference
+
 NODE = shutil.which("node")
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "scripts" / "live_probe.mjs"
-BUNDLE = ROOT / "dist" / "data"
 
 
 @pytest.fixture(scope="module")
-def probe() -> dict:
+def bundle_dir(tmp_path_factory) -> Path:
+    """A small but real bundle: EGTT and EGLL must exist for the probe's assertions."""
+    root = tmp_path_factory.mktemp("live-bundle")
+    database = Database(root / "live.sqlite3")
+    database.initialize()
+    end = datetime(2026, 11, 9, 22, tzinfo=UTC)
+    simulate_network(database, days=21, seed=31, end=end)
+    rebuild_all(database)
+    out = root / "dist"
+    build_bundle(database, out_dir=out, reference=_reference(), write_web_assets=False)
+    database.close()
+    return out / "data"
+
+
+@pytest.fixture(scope="module")
+def probe(bundle_dir: Path) -> dict:
     if NODE is None:
         pytest.skip("node is not installed")
-    if not (BUNDLE / "meta.json").is_file():
-        pytest.skip("no published bundle; run `skysherpa publish` first")
     completed = subprocess.run(
-        [NODE, str(PROBE), str(BUNDLE)], capture_output=True, text=True, check=True, cwd=str(ROOT)
+        [NODE, str(PROBE), str(bundle_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=str(ROOT),
     )
     return json.loads(completed.stdout)
 
