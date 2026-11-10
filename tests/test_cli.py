@@ -218,6 +218,17 @@ def test_check_flags_a_hung_cycle(tmp_path: Path, capsys) -> None:
     assert "HUNG" in capsys.readouterr().err
 
 
+def test_console_entry_point_takes_no_arguments(monkeypatch, capsys) -> None:
+    """`[project.scripts]` calls main() with no arguments, so argv must default to sys.argv."""
+    import sys
+
+    from skysherpa.cli import main
+
+    monkeypatch.setattr(sys, "argv", ["skysherpa", "version"])
+    assert main() == 0
+    assert "skysherpa" in capsys.readouterr().out
+
+
 def test_unknown_command_exits_nonzero() -> None:
     try:
         main(["nonsense"])

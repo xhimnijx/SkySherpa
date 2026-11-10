@@ -9,6 +9,31 @@ Each entry is reproducible from the commit named.
 
 ---
 
+## 2026-11-10 — the Ubuntu target, after the lint pass
+
+Commit `a256259`. Python 3.14.3 on the development box; Ubuntu is exercised by CI.
+
+| check | result |
+| --- | --- |
+| `ruff check` / `ruff format --check` | clean (31 findings fixed, 22 files reformatted) |
+| `pytest -m "not network"` | 338 passed |
+| end to end, 40 simulated days | 783 KB bundle · `verify` coherent · 4/4 gates · exit 0 |
+| gate numbers at 40 days | skill 0.488 · ECE 0.046 → 0.040 calibrated · AUC 0.963 · coverage 0.997 |
+| installer | `--dry-run` exits 0 writing nothing; `--uninstall` removes only its own units |
+| shell | `bash -n` clean on both scripts; `scripts/dev.sh version` runs |
+| live network | `doctor`: 7/8 healthy, the only failure the documented `atc_history` timeout |
+
+CI on `ubuntu-latest` runs the same checks on Python 3.11, 3.12 and 3.13, plus `make help`
+and `make -n` for three targets — the only place the Makefile is ever executed.
+
+### The real-data gate
+
+Two days of real history are in the database; the gate needs 35. `skysherpa status` prints
+the date it opens, currently **2026-12-14**. Until then every number above is synthetic,
+and says nothing about forecast accuracy on VATSIM.
+
+---
+
 ## 2026-11-09 — clean clone, full pipeline
 
 Commit `5a83998`. Python 3.14.3, Node 24.14.1, Windows.
