@@ -107,6 +107,25 @@ def test_the_installer_checks_for_venv_support() -> None:
     assert "skysherpa version" in installer
 
 
+def test_the_installer_starts_the_collector_before_the_publisher() -> None:
+    """The publisher exits immediately without a database, and `set -e` would abort."""
+    installer = (ROOT / "ops" / "install-ubuntu.sh").read_text(encoding="utf-8")
+    ingest_at = installer.index("enable --now skysherpa-ingest.service")
+    publish_at = installer.index("enable --now skysherpa-publish.service")
+    assert ingest_at < publish_at
+    assert "skysherpa.sqlite3" in installer
+    # A start failure downstream must be reported, not fatal to the install.
+    assert "||" in installer[publish_at : publish_at + 200]
+
+
+def test_the_installer_guards_against_common_first_run_failures() -> None:
+    installer = (ROOT / "ops" / "install-ubuntu.sh").read_text(encoding="utf-8")
+    # A space in the path breaks the unquoted ExecStart that sed writes into the units.
+    assert 'case "$repo" in' in installer
+    # Without a session bus, systemctl --user fails with an error about D-Bus.
+    assert "systemctl --user show-environment" in installer
+
+
 def test_launchers_do_not_assume_a_python_binary() -> None:
     """Ubuntu ships python3 and, on a clean image, no `python` at all."""
     dev = (ROOT / "scripts" / "dev.sh").read_text(encoding="utf-8")

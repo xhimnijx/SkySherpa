@@ -12,6 +12,24 @@ python=${PYTHON:-python3}
 
 say() { printf '%s\n' "$*"; }
 
+# ExecStart is not shell-quoted, so a space in the path produces a unit that cannot start.
+case "$repo" in
+  *" "*)
+    say "error: the repository path contains a space: $repo"
+    say "       move it somewhere without spaces (for example ~/skysherpa)"
+    exit 1
+    ;;
+esac
+
+# Without a user session bus, systemctl --user fails with a message about D-Bus that does
+# not mention the real cause: running from a bare SSH login or a cron job.
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+  say "error: cannot reach the user systemd manager"
+  say "       run this from a graphical login, or as:"
+  say "       XDG_RUNTIME_DIR=/run/user/\$(id -u) ./ops/install-ubuntu.sh"
+  exit 1
+fi
+
 command -v "$python" >/dev/null || { say "error: $python not found"; exit 1; }
 version=$("$python" -c 'import sys; print("%d%02d" % sys.version_info[:2])')
 if [ "$version" -lt 311 ]; then
@@ -50,10 +68,25 @@ done
 say "installed units into $unit_dir"
 
 systemctl --user daemon-reload
-# The publisher needs a database to publish; it retries until the collector has made one.
+
+# Start the collector first: it creates the database on its first poll, and everything
+# downstream needs it. `set -e` plus a failing start job is how the first version of this
+# script died -- the publisher has nothing to publish yet and exits immediately.
 systemctl --user enable --now skysherpa-ingest.service
-systemctl --user enable --now skysherpa-publish.service
-systemctl --user enable --now skysherpa-web.service
+
+say "waiting for the first poll to create the database..."
+for _ in $(seq 1 30); do
+  [ -f "$repo/data/skysherpa.sqlite3" ] && break
+  sleep 2
+done
+
+systemctl --user enable --now skysherpa-publish.service ||
+  say "note: the publisher will retry until the collector has collected something"
+
+# The web unit waits for dist-real itself, so this returns once the first bundle exists.
+systemctl --user enable --now skysherpa-web.service ||
+  say "note: the site will appear once the first publish cycle completes"
+
 systemctl --user enable --now skysherpa-check.timer
 
 # Without lingering, user units are stopped when the last session closes.
