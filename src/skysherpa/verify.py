@@ -39,6 +39,15 @@ def _expect(problems: list[str], name: str, got: int, want: int) -> None:
         problems.append(f"{name}: {got} bytes/entries, expected {want}")
 
 
+def _count(meta: dict[str, Any], name: str, problems: list[str]) -> int | None:
+    """Read a non-negative integer from meta, or record why it is not one."""
+    value = meta.get(name)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        problems.append(f"meta.{name} is not a non-negative integer: {value!r}")
+        return None
+    return value
+
+
 def verify_bundle(out_dir: Path) -> list[str]:
     """Return a list of problems; an empty list means the bundle is coherent."""
     problems: list[str] = []
@@ -56,18 +65,12 @@ def verify_bundle(out_dir: Path) -> list[str]:
     if not isinstance(meta, dict):
         return problems or ["meta.json is not an object"]
 
-    fir_count = meta.get("fir_count")
-    airport_count = meta.get("airport_count")
-    pair_count = meta.get("pair_count")
-    for key, value in (
-        ("fir_count", fir_count),
-        ("airport_count", airport_count),
-        ("pair_count", pair_count),
-        ("days_observed", meta.get("days_observed")),
-    ):
-        if not isinstance(value, int) or value < 0:
-            problems.append(f"meta.{key} is not a non-negative integer: {value!r}")
-            return problems
+    fir_count = _count(meta, "fir_count", problems)
+    airport_count = _count(meta, "airport_count", problems)
+    pair_count = _count(meta, "pair_count", problems)
+    _count(meta, "days_observed", problems)
+    if fir_count is None or airport_count is None or pair_count is None:
+        return problems
 
     payloads = {}
     for name in JSON_FILES:

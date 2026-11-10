@@ -330,19 +330,31 @@ class Ingestor:
             max_gs_kt=pilot.groundspeed_kt,
         )
         if pilot.airborne and pilot.has_position:
-            active.track.append(
-                (
-                    ts,
-                    pilot.latitude,  # type: ignore[arg-type]
-                    pilot.longitude,  # type: ignore[arg-type]
-                    pilot.altitude_ft,
-                    pilot.groundspeed_kt,
-                    pilot.heading,
-                )
-            )
-            active.last_sample = ts
+            self._record_point(active, pilot, ts)
         self._flights[pilot.callsign] = active
         return active
+
+    @staticmethod
+    def _record_point(active: _ActiveFlight, pilot: Pilot, ts: datetime) -> bool:
+        """Append a track point when the feed actually carries coordinates.
+
+        ``has_position`` is true when it does, but the type system cannot see that, and a
+        track point without a latitude is not worth storing in any case.
+        """
+        if pilot.latitude is None or pilot.longitude is None:
+            return False
+        active.track.append(
+            (
+                ts,
+                pilot.latitude,
+                pilot.longitude,
+                pilot.altitude_ft,
+                pilot.groundspeed_kt,
+                pilot.heading,
+            )
+        )
+        active.last_sample = ts
+        return True
 
     def _update_flight(self, active: _ActiveFlight, pilot: Pilot, ts: datetime) -> None:
         active.last_seen = ts
@@ -364,17 +376,7 @@ class Ingestor:
             or (ts - active.last_sample).total_seconds() >= self.config.track_sample_s
         )
         if due:
-            active.track.append(
-                (
-                    ts,
-                    pilot.latitude,  # type: ignore[arg-type]
-                    pilot.longitude,  # type: ignore[arg-type]
-                    pilot.altitude_ft,
-                    pilot.groundspeed_kt,
-                    pilot.heading,
-                )
-            )
-            active.last_sample = ts
+            self._record_point(active, pilot, ts)
 
         self.db.update_flight(
             active.flight_id,

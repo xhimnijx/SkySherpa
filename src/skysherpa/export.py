@@ -288,10 +288,10 @@ def build_bundle(
     airport_layers: dict[str, list[list[int]]] = {}
     if reference is not None:
         for icao in sorted(candidates, key=lambda code: -traffic.get(code, 0))[:max_airports]:
-            airport = reference.airports.get(icao)
-            if airport is None:
+            record = reference.airports.get(icao)
+            if record is None:
                 continue
-            fir = (airport.fir or "").upper()
+            fir = (record.fir or "").upper()
             centre = fir_ctr.get(fir, zeros)
             approach = _union(_combine(by_airport[icao]["APP"]), centre)
             tower = _union(_combine(by_airport[icao]["TWR"]), approach)
@@ -308,11 +308,11 @@ def build_bundle(
             airports.append(
                 {
                     "icao": icao,
-                    "name": airport.name,
-                    "lat": round(airport.lat, 4),
-                    "lon": round(airport.lon, 4),
-                    "iata": airport.iata,
-                    "fir": airport.fir,
+                    "name": record.name,
+                    "lat": round(record.lat, 4),
+                    "lon": round(record.lon, 4),
+                    "iata": record.iata,
+                    "fir": record.fir,
                     "traffic": traffic.get(icao, 0),
                     "stack": stack,
                 }
@@ -332,11 +332,11 @@ def build_bundle(
         "WHERE aircraft_short IS NOT NULL AND aircraft_short != '' "
         "GROUP BY dep_icao, arr_icao, aircraft_short"
     ):
-        key = (str(row["dep_icao"]), str(row["arr_icao"]))
+        pair_key = (str(row["dep_icao"]), str(row["arr_icao"]))
         count = int(row["n"])
-        current = modal_aircraft.get(key)
+        current = modal_aircraft.get(pair_key)
         if current is None or count > current[1]:
-            modal_aircraft[key] = (str(row["aircraft_short"]), count)
+            modal_aircraft[pair_key] = (str(row["aircraft_short"]), count)
 
     for row in db.query(
         "SELECT dep_icao, arr_icao, n_flights, med_block_min, distance_nm FROM pair_stat "
