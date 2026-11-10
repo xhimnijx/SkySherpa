@@ -43,8 +43,17 @@ class BundleResult:
     def total_bytes(self) -> int:
         return sum(self.files.values())
 
-    def summary(self) -> str:
-        lines = [f"bundle written to {self.out_dir} ({self.total_bytes / 1024:.0f} KB)"]
+    def summary(self, detail: bool = True) -> str:
+        headline = (
+            f"bundle written to {self.out_dir} "
+            f"({self.total_bytes / 1024:.0f} KB, {len(self.files)} files)"
+        )
+        if not detail:
+            # A watch loop prints this every cycle. Twenty lines an hour is fine for a log
+            # and not fine for a process whose stdout nobody is draining: a blocked writer
+            # looks exactly like a stalled loop.
+            return headline
+        lines = [headline]
         for name, size in sorted(self.files.items(), key=lambda item: -item[1]):
             lines.append(f"  {name:<26} {size / 1024:7.1f} KB")
         return "\n".join(lines)

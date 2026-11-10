@@ -110,6 +110,9 @@ python -m http.server 8099 --directory dist
 # any time: is the history deep enough to trust the forecast yet?
 .\scripts\dev.ps1 status
 
+# and, from a scheduler: exits non-zero if the collector or publisher stops
+.\scripts\dev.ps1 status --check
+
 # check that a published bundle is internally coherent (publish does this too)
 .\scripts\dev.ps1 verify
 

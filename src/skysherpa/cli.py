@@ -845,7 +845,8 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
     finally:
         database.close()
 
-    print(result.summary())
+    # One line per cycle in watch mode; the full inventory when a human asked once.
+    print(result.summary(detail=not getattr(args, "watch", False) or args.verbose))
 
     # A bundle that does not add up is worse than no bundle: the site will load most of it
     # and fail somewhere unhelpful. Check it here while the operator is still watching.
@@ -905,6 +906,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
                                 "at": datetime.now(UTC).isoformat(),
                                 "ok": True,
                                 "seconds": round(elapsed, 1),
+                                "interval": interval,
                             }
                         ),
                         encoding="utf-8",
@@ -1002,20 +1004,23 @@ def cmd_status(args: argparse.Namespace) -> int:
     # The publisher writes a heartbeat per cycle; without this line its death is invisible,
     # because everything downstream of it keeps looking plausible.
     publisher = "no heartbeat yet (publish --watch writes one per cycle)"
-    beats: list[tuple[datetime, str]] = []
+    site_root = Path(args.site) if getattr(args, "site", None) else settings.root
+    beats: list[tuple[datetime, str, float]] = []
     for site in ("dist", "dist-real"):
         try:
-            payload = json.loads(
-                (settings.root / site / ".publisher.json").read_text(encoding="utf-8")
-            )
-            beats.append((datetime.fromisoformat(payload["at"]), site))
+            payload = json.loads((site_root / site / ".publisher.json").read_text(encoding="utf-8"))
+            moment = datetime.fromisoformat(payload["at"])
+            interval_s = float(payload.get("interval") or 900)
+            beats.append((moment, site, max(600.0, interval_s * 2)))
         except (OSError, ValueError, KeyError):
             continue
+    publisher_age: float | None = None
+    publisher_limit = 900.0
     if beats:
-        moment, site = max(beats)
-        age = (datetime.now(UTC) - moment).total_seconds()
-        where = f"{age:.0f}s ago" if age < 90 else f"{age / 60:.0f} min ago"
-        verdict = "alive" if age < 3600 else "STALLED"
+        moment, site, publisher_limit = max(beats)
+        publisher_age = (datetime.now(UTC) - moment).total_seconds()
+        where = f"{publisher_age:.0f}s ago" if publisher_age < 90 else f"{publisher_age / 60:.0f} min ago"
+        verdict = "alive" if publisher_age <= publisher_limit else "STALLED"
         publisher = f"{site}: last cycle {where} ({verdict})"
     print(f"publisher  {publisher}")
     print("")
@@ -1030,6 +1035,24 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"  next: keep the collector running; waiting on {', '.join(blocking)}")
     else:
         print("  next: ready to backtest and calibrate on real data")
+
+    # Usable from a scheduler: exit non-zero when either long-running process is stale.
+    if getattr(args, "check", False):
+        stale: list[str] = []
+        if collector_age is None or collector_age > 300:
+            stale.append(f"collector ({collector})")
+        if publisher_age is None:
+            stale.append("publisher (no heartbeat; is `publish --watch` running?)")
+        elif publisher_age > publisher_limit:
+            stale.append(f"publisher (last cycle {publisher_age / 60:.0f} min ago)")
+        database.close()
+        if stale:
+            print("", file=sys.stderr)
+            print(f"unhealthy: {'; '.join(stale)}", file=sys.stderr)
+            return 1
+        print("healthy: collector and publisher are both current")
+        return 0
+
     database.close()
     return 0
 
@@ -1170,6 +1193,14 @@ def build_parser() -> argparse.ArgumentParser:
         "status", parents=[common], help="readiness: history, matrix, and what still blocks"
     )
     p_status.add_argument("--json", action="store_true")
+    p_status.add_argument(
+        "--check",
+        action="store_true",
+        help="exit non-zero when the collector or publisher is stale (for a scheduler)",
+    )
+    p_status.add_argument(
+        "--site", help="directory containing dist/ and dist-real/ (default: repo root)"
+    )
     p_status.set_defaults(func=cmd_status)
 
     p_rehearse = sub.add_parser(
@@ -1251,6 +1282,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=300,
         help="abandon a publish cycle that runs longer than this in --watch mode",
+    )
+    p_pub.add_argument(
+        "--verbose",
+        action="store_true",
+        help="print the full file inventory on every watch cycle",
     )
     p_pub.set_defaults(func=cmd_publish)
 
