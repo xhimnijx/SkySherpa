@@ -9,8 +9,28 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 python=${PYTHON:-python3}
+dry_run=0
+# $USER is not set in every environment that runs this (cron, bare sh); id always works.
+login_user=$(id -un)
 
 say() { printf '%s\n' "$*"; }
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=1 ;;
+    -h | --help)
+      say "usage: $0 [--dry-run]"
+      say ""
+      say "Installs SkySherpa as systemd user units. --dry-run checks the environment and"
+      say "prints what it would do, without creating a venv or touching systemd."
+      exit 0
+      ;;
+    *)
+      say "error: unknown argument: $arg (try --help)"
+      exit 1
+      ;;
+  esac
+done
 
 # ExecStart is not shell-quoted, so a space in the path produces a unit that cannot start.
 case "$repo" in
@@ -24,10 +44,14 @@ esac
 # Without a user session bus, systemctl --user fails with a message about D-Bus that does
 # not mention the real cause: running from a bare SSH login or a cron job.
 if ! systemctl --user show-environment >/dev/null 2>&1; then
-  say "error: cannot reach the user systemd manager"
-  say "       run this from a graphical login, or as:"
-  say "       XDG_RUNTIME_DIR=/run/user/\$(id -u) ./ops/install-ubuntu.sh"
-  exit 1
+  if [ "$dry_run" = 1 ]; then
+    say "warning: no user systemd manager reachable (expected outside a desktop session)"
+  else
+    say "error: cannot reach the user systemd manager"
+    say "       run this from a graphical login, or as:"
+    say "       XDG_RUNTIME_DIR=/run/user/\$(id -u) ./ops/install-ubuntu.sh"
+    exit 1
+  fi
 fi
 
 command -v "$python" >/dev/null || { say "error: $python not found"; exit 1; }
@@ -46,6 +70,26 @@ if ! "$python" -c 'import venv, ensurepip' >/dev/null 2>&1; then
   exit 1
 fi
 
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+if [ "$dry_run" = 1 ]; then
+  say ""
+  say "dry run: nothing created, nothing written, nothing started"
+  say "  python    $("$python" -V 2>&1)"
+  say "  repo      $repo"
+  say "  units     $unit_dir"
+  for unit in "$repo"/ops/systemd/*.service "$repo"/ops/systemd/*.timer; do
+    say "  would install $(basename "$unit")"
+  done
+  say "  would create $repo/.venv and install the package into it"
+  say "  would run: systemctl --user enable --now skysherpa-ingest.service"
+  say "  would run: systemctl --user enable --now skysherpa-publish.service"
+  say "  would run: systemctl --user enable --now skysherpa-web.service"
+  say "  would run: systemctl --user enable --now skysherpa-check.timer"
+  say "  would run: loginctl enable-linger $login_user"
+  exit 0
+fi
+
 if [ ! -d "$repo/.venv" ]; then
   say "creating $repo/.venv"
   "$python" -m venv "$repo/.venv"
@@ -60,7 +104,6 @@ say "installing skysherpa into the venv"
   exit 1
 }
 
-unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"
 for unit in "$repo"/ops/systemd/*.service "$repo"/ops/systemd/*.timer; do
   sed "s|@REPO@|$repo|g" "$unit" >"$unit_dir/$(basename "$unit")"
@@ -91,7 +134,7 @@ systemctl --user enable --now skysherpa-check.timer
 
 # Without lingering, user units are stopped when the last session closes.
 if command -v loginctl >/dev/null; then
-  loginctl enable-linger "$USER" || say "warning: could not enable lingering; the service will stop at logout"
+  loginctl enable-linger "$login_user" || say "warning: could not enable lingering; the service will stop at logout"
 fi
 
 say ""

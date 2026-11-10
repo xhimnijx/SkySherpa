@@ -101,6 +101,7 @@ so use 24.04 or install `python3.11` and point `PYTHON=` at it.
 ```bash
 git clone <repo> ~/skysherpa
 cd ~/skysherpa
+./ops/install-ubuntu.sh --dry-run   # checks the environment, prints what it would do
 ./ops/install-ubuntu.sh
 ```
 

@@ -9,6 +9,9 @@ restarts on failure, the health check is driven by a timer, and nobody forgot to
 from __future__ import annotations
 
 import configparser
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,7 @@ SYSTEMD = ROOT / "ops" / "systemd"
 SERVICES = sorted(SYSTEMD.glob("*.service"))
 TIMERS = sorted(SYSTEMD.glob("*.timer"))
 PLACEHOLDER = "@REPO@"
+STR_PUBLISH_PLACEHOLDER = "enable --now skysherpa-publish.service"
 
 
 def _parse(path: Path) -> configparser.ConfigParser:
@@ -110,12 +114,22 @@ def test_the_installer_checks_for_venv_support() -> None:
 def test_the_installer_starts_the_collector_before_the_publisher() -> None:
     """The publisher exits immediately without a database, and `set -e` would abort."""
     installer = (ROOT / "ops" / "install-ubuntu.sh").read_text(encoding="utf-8")
-    ingest_at = installer.index("enable --now skysherpa-ingest.service")
-    publish_at = installer.index("enable --now skysherpa-publish.service")
+    lines = installer.splitlines()
+
+    def executable_index(unit: str) -> int:
+        # Skip the dry-run's "would run: ..." lines; find the real invocation.
+        return next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith(f"systemctl --user enable --now {unit}")
+        )
+
+    ingest_at = executable_index("skysherpa-ingest.service")
+    publish_at = executable_index("skysherpa-publish.service")
     assert ingest_at < publish_at
     assert "skysherpa.sqlite3" in installer
-    # A start failure downstream must be reported, not fatal to the install.
-    assert "||" in installer[publish_at : publish_at + 200]
+    # A failed first start must be reported, not fatal to the install.
+    assert lines[publish_at].rstrip().endswith("||")
 
 
 def test_the_installer_guards_against_common_first_run_failures() -> None:
@@ -124,6 +138,99 @@ def test_the_installer_guards_against_common_first_run_failures() -> None:
     assert 'case "$repo" in' in installer
     # Without a session bus, systemctl --user fails with an error about D-Bus.
     assert "systemctl --user show-environment" in installer
+
+
+def _substituted(unit: Path) -> configparser.ConfigParser:
+    """Apply the same substitution the installer's sed performs, then parse."""
+    text = unit.read_text(encoding="utf-8").replace(PLACEHOLDER, ROOT.as_posix())
+    parser = configparser.ConfigParser(strict=False, interpolation=None)
+    parser.read_string(text)
+    return parser
+
+
+def test_substituted_units_point_at_the_repo() -> None:
+    """What the installer writes must be an absolute path to this checkout, not a template."""
+    for unit in SERVICES:
+        parser = _substituted(unit)
+        service = parser["Service"]
+        assert PLACEHOLDER not in service["ExecStart"]
+        assert service["WorkingDirectory"] == ROOT.as_posix()
+        assert service["ExecStart"].startswith(f"{ROOT.as_posix()}/.venv/bin/python")
+
+
+def test_substituted_units_invoke_the_right_commands() -> None:
+    expected = {
+        "skysherpa-ingest.service": "-m skysherpa ingest --interval 15",
+        "skysherpa-publish.service": "-m skysherpa publish --watch",
+        "skysherpa-web.service": "-m http.server 8099",
+        "skysherpa-check.service": "-m skysherpa status --check",
+    }
+    for name, command in expected.items():
+        service = _substituted(SYSTEMD / name)["Service"]
+        assert command in service["ExecStart"], name
+    publish = _substituted(SYSTEMD / "skysherpa-publish.service")["Service"]["ExecStart"]
+    assert "--timeout" in publish and "--interval" in publish
+
+
+def _bash() -> str | None:
+    """Find a POSIX shell; the Windows dev box has one inside Git for Windows."""
+    found = shutil.which("bash")
+    if found:
+        return found
+    for candidate in (
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        "/bin/bash",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def test_shell_scripts_parse_with_bash() -> None:
+    """Run the real shell parser when one is available; skip on a bare Windows box."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash available")
+    for script in (ROOT / "scripts" / "dev.sh", ROOT / "ops" / "install-ubuntu.sh"):
+        completed = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True)
+        assert completed.returncode == 0, f"{script.name}: {completed.stderr}"
+
+
+def test_installer_dry_run_plans_without_writing(tmp_path: Path) -> None:
+    """The dry run is the safe way to find out what the installer would do."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash available")
+
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
+    completed = subprocess.run(
+        [bash, str(ROOT / "ops" / "install-ubuntu.sh"), "--dry-run"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(ROOT),
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "dry run: nothing created" in completed.stdout
+    assert "enable --now skysherpa-ingest.service" in completed.stdout
+    assert STR_PUBLISH_PLACEHOLDER in completed.stdout
+    # Nothing may be written: no unit directory, and no virtualenv.
+    assert not (tmp_path / "systemd" / "user").exists()
+    assert not (ROOT / ".venv-dryrun-probe").exists()
+
+
+def test_installer_rejects_unknown_arguments() -> None:
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash available")
+    completed = subprocess.run(
+        [bash, str(ROOT / "ops" / "install-ubuntu.sh"), "--nope"],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 1
+    assert "unknown argument" in completed.stdout
 
 
 def test_launchers_do_not_assume_a_python_binary() -> None:
