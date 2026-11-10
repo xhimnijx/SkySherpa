@@ -204,3 +204,17 @@ dominant operating cost of the project and the reason 30 s is the default.
 - Discord presence, forum activity, or any social signal tied to an individual.
 - Any third-party archive of controller identities.
 - Real-world NOTAM/weather services beyond METAR/TAF (out of scope, and a safety-optics risk).
+
+---
+
+## 8. Test fixtures captured from the live feed
+
+`tests/data/feed_sample.json` is one real snapshot, trimmed to 30 pilots, 25 controllers, 6 ATIS
+and 6 prefiles, with member names removed and CIDs replaced by sequential integers (ADR-0003).
+It exists because hand-written payloads never contain the quirks the real feed does — altitude
+as a number rather than a string, sentinel frequencies, empty callsigns, seven-digit timestamps,
+pilots sitting on the ground with a plan filed.
+
+`scripts/capture_feed_sample.py` regenerates it. Re-capture deliberately, read the diff, and
+confirm `test_the_fixture_carries_no_identities` passes before committing: the scrub is the
+point of the file, not a nicety.
