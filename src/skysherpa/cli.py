@@ -890,8 +890,27 @@ def cmd_publish(args: argparse.Namespace) -> int:
                     flush=True,
                 )
             else:
+                elapsed = time.monotonic() - started
                 print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
-                      f"{time.monotonic() - started:.1f}s", flush=True)
+                      f"{elapsed:.1f}s", flush=True)
+                # Heartbeat on disk, not just on stdout: a stalled loop can lose its
+                # console, and `status` must be able to tell a live publisher from a dead
+                # one without reading a background job.
+                try:
+                    out_dir = Path(args.out) if args.out else settings.root / "dist"
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    (out_dir / ".publisher.json").write_text(
+                        json.dumps(
+                            {
+                                "at": datetime.now(UTC).isoformat(),
+                                "ok": True,
+                                "seconds": round(elapsed, 1),
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
         except KeyboardInterrupt:
             print("stopped")
             return 0
