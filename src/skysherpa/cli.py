@@ -16,7 +16,7 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from . import __version__, doctor
@@ -1065,9 +1065,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"publisher  {publisher}")
     print("")
     print("readiness")
+    # "Needs 33 more days" is hard to plan around; a date is not.
+    first_day = stats["first_poll"].date() if stats["first_poll"] else None
     for name, ready, detail, wait in checks:
         marker = "[x]" if ready else "[ ]"
-        suffix = "" if ready else f"  (needs {wait} more day{'s' if wait != 1 else ''})"
+        suffix = ""
+        if not ready:
+            suffix = f"  (needs {wait} more day{'s' if wait != 1 else ''}"
+            if first_day is not None:
+                suffix += f", around {(first_day + timedelta(days=days + wait)).isoformat()}"
+            suffix += ")"
         print(f"  {marker} {name:<12} {detail}{suffix}")
     print("")
     blocking = [name for name, ready, _, _ in checks if not ready]
