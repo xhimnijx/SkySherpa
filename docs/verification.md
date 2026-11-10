@@ -9,6 +9,32 @@ Each entry is reproducible from the commit named.
 
 ---
 
+## 2026-11-10 — the real database, current code
+
+Commit `f1f844b`. 8.6 hours of live collection, published through the current pipeline.
+
+| check | result |
+| --- | --- |
+| `publish` from `data/` | 1,755 KB bundle · 4,650 presence slots · 2,612 pairs · 2,910 airport-hours |
+| `verify` | bundle is coherent |
+| positions | 192 modelled · **159 with an airport** · 186 with a FIR |
+| facilities | 52 APP · 46 CTR · 45 GND · 42 TWR · 4 DEL · 3 FSS |
+
+The position index is where the real-data work pays off. `ABQ_16_CTR` resolves to `KABQ` in
+`KZAB`: a US three-letter stem with a position index, which before this week would have kept
+neither its airport nor, without the `K` prefix, any way to find one. Across the 192 observed
+positions, 159 now carry an airport they can attribute terminal coverage to.
+
+The 33 without one are mostly centres and FSS positions that genuinely are not at an airport,
+which is the correct answer rather than a miss.
+
+### What this still does not prove
+
+Two days of history. The forecast is mostly prior and the backtest gate does not open until
+**2026-12-14**; every number above is pipeline mechanics, not forecast accuracy.
+
+---
+
 ## 2026-11-10 — the Ubuntu target, after the lint pass
 
 Commit `a256259`. Python 3.14.3 on the development box; Ubuntu is exercised by CI.
