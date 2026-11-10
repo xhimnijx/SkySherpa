@@ -11,6 +11,7 @@ import argparse
 import json
 import platform
 import sys
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
@@ -870,13 +871,27 @@ def cmd_publish(args: argparse.Namespace) -> int:
         return _publish_once(args, settings)
 
     interval = max(60, args.interval)
-    print(f"publishing every {interval // 60} min; ctrl-c to stop")
+    # A cycle that hangs produces no output, no error, and a website that quietly goes
+    # stale: exactly what happened once for 54 minutes while `status` reported the
+    # collector healthy. Run each cycle in a worker and abandon it if it overruns.
+    budget = max(60, args.timeout)
+    print(f"publishing every {interval // 60} min; cycle timeout {budget}s; ctrl-c to stop")
     while True:
         try:
             started = time.monotonic()
-            _publish_once(args, settings)
-            print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
-                  f"{time.monotonic() - started:.1f}s", flush=True)
+            worker = threading.Thread(target=_publish_once, args=(args, settings), daemon=True)
+            worker.start()
+            worker.join(timeout=budget)
+            if worker.is_alive():
+                print(
+                    f"ALARM [{datetime.now(UTC).strftime('%H:%M:%SZ')}] a publish cycle "
+                    f"exceeded {budget}s and was abandoned; the site is not being updated",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(f"[{datetime.now(UTC).strftime('%H:%M:%SZ')}] published in "
+                      f"{time.monotonic() - started:.1f}s", flush=True)
         except KeyboardInterrupt:
             print("stopped")
             return 0
@@ -1191,6 +1206,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_pub.add_argument(
         "--interval", type=int, default=900, help="seconds between publishes in --watch mode"
+    )
+    p_pub.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="abandon a publish cycle that runs longer than this in --watch mode",
     )
     p_pub.set_defaults(func=cmd_publish)
 
