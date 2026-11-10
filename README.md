@@ -150,6 +150,38 @@ CI runs on `ubuntu-latest` for Python 3.11, 3.12 and 3.13: the offline suite, bo
 scripts, the installer's dry run, and a full `simulate → publish → verify → backtest` cycle.
 The live-network job is manual, because the feed throttles.
 
+## Running on Windows
+
+Everything already runs on Windows — the same `python -m skysherpa` commands, the same test
+suite, `.\scripts\dev.ps1` as the launcher. What Windows lacks is systemd, so one supervisor
+plays that role:
+
+```powershell
+.\ops\install-windows.ps1 -DryRun   # prints the plan, changes nothing
+.\ops\install-windows.ps1           # venv, install, scheduled task at logon
+```
+
+The task runs `skysherpa up`, which starts three children — collector, publisher, site —
+restarts whatever dies with backoff, and stops them together. Task Scheduler restarts the
+supervisor itself if it exits.
+
+| | |
+| --- | --- |
+| site | http://127.0.0.1:8099/ (appears after the first publish completes) |
+| logs | `logs\collector.log`, `logs\publisher.log`, `logs\site.log` |
+| status | `.\.venv\Scripts\python -m skysherpa status` |
+| stop | `Stop-ScheduledTask -TaskName SkySherpa` |
+| remove | `.\ops\install-windows.ps1 -Uninstall` (leaves data, bundle and venv) |
+
+Without the installer, for a foreground run: `.\scripts\dev.ps1 up`.
+
+**One honest difference from Linux.** Stopping is less graceful. Ctrl-Break only reaches a
+child that shares a console with its parent, and under a captured console it does not
+arrive at all — verified with a probe — so the supervisor falls back to killing the child
+after a short grace. The collector recovers by closing orphaned flights on its next start
+(it closed 1,356 after an earlier crash), so an abrupt stop is survivable rather than
+corrupting, but Linux flushes and Windows may not.
+
 ## Running it by hand
 
 Any platform, for a quick look:

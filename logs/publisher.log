@@ -1,0 +1,9 @@
+
+--- 2026-11-10T13:45:25Z starting ---
+publishing every 1 min; cycle timeout 300s; ctrl-c to stop
+rolled up 4,906 slots | 3,529 pairs | 3,445 airport-hours
+bundle written to C:\vatsim-route-planner\dist-real (1935 KB, 17 files)
+
+  serve:  python -m http.server 8080 --directory C:\vatsim-route-planner\dist-real
+  open:   http://127.0.0.1:8080/
+[13:45:27Z] published in 2.1s

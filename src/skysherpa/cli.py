@@ -543,6 +543,12 @@ def _install_shutdown_handler() -> None:
     with contextlib.suppress(ValueError, OSError, AttributeError):
         # Best effort: some platforms and non-main threads refuse signal handlers.
         signal.signal(signal.SIGTERM, _raise_interrupt)
+    if hasattr(signal, "SIGBREAK"):
+        # Windows: the supervisor stops a child with CTRL_BREAK, which arrives as SIGBREAK.
+        # Without this the child is killed outright and its open flights are left for the
+        # next start to close.
+        with contextlib.suppress(ValueError, OSError, AttributeError):
+            signal.signal(signal.SIGBREAK, _raise_interrupt)
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -1130,6 +1136,22 @@ def cmd_rehearse(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_up(args: argparse.Namespace) -> int:
+    from .up import supervise
+
+    settings = _settings(args)
+    out = Path(args.out) if args.out else settings.root / "dist-real"
+    return supervise(
+        settings,
+        out=out,
+        interval=args.interval,
+        publish_interval=args.publish_interval,
+        port=args.port,
+        seconds=args.minutes * 60 if args.minutes else None,
+        quiet=args.quiet,
+    )
+
+
 def cmd_prune(args: argparse.Namespace) -> int:
     from .prune import prune_history
 
@@ -1278,6 +1300,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_verify.add_argument("--out", help="bundle directory (default: dist)")
     p_verify.set_defaults(func=cmd_verify)
+
+    p_up = sub.add_parser(
+        "up", parents=[common], help="supervise collector, publisher and site in one process"
+    )
+    p_up.add_argument("--out", help="bundle directory (default: dist-real)")
+    p_up.add_argument("--interval", type=int, default=15, help="collector poll interval")
+    p_up.add_argument("--publish-interval", type=int, default=900, help="seconds between publishes")
+    p_up.add_argument("--port", type=int, default=8099)
+    p_up.add_argument("--minutes", type=float, help="stop after this many minutes (for a demo)")
+    p_up.add_argument("--quiet", action="store_true")
+    p_up.set_defaults(func=cmd_up)
 
     p_rollup = sub.add_parser(
         "rollup", parents=[common], help="rebuild presence and route aggregates"
