@@ -34,3 +34,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# sandbox for tests that need a path without spaces
+.sandbox/
