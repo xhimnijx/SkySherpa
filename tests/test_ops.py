@@ -265,6 +265,30 @@ def test_installer_uninstall_removes_only_its_own_units(tmp_path: Path) -> None:
     assert "left in place" in completed.stdout
 
 
+def test_makefile_only_references_declared_extras() -> None:
+    """`make install` used to name extras that no longer exist; it would fail on a clone."""
+    import re
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = set(project["project"].get("optional-dependencies", {}))
+    make = (ROOT / "Makefile").read_text(encoding="utf-8")
+    for match in re.finditer(r"\.\[([^\]]+)\]", make):
+        for extra in match.group(1).split(","):
+            name = extra.strip()
+            assert name in declared, f"Makefile references undeclared extra: {name}"
+
+
+def test_the_package_declares_no_unused_extras() -> None:
+    """Nothing in src imports a third-party package; extras would imply components that do not exist."""
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = project["project"].get("optional-dependencies", {})
+    assert set(extras) == {"dev"}
+    assert project["project"]["dependencies"] == []
+
+
 def test_launchers_do_not_assume_a_python_binary() -> None:
     """Ubuntu ships python3 and, on a clean image, no `python` at all."""
     dev = (ROOT / "scripts" / "dev.sh").read_text(encoding="utf-8")

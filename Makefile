@@ -52,4 +52,4 @@ fmt:
 	$(PYTHON) -m ruff format src tests
 
 install:
-	$(PYTHON) -m pip install -e ".[dev,server,science]"
+	$(PYTHON) -m pip install -e ".[dev]"

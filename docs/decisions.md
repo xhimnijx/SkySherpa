@@ -221,6 +221,13 @@ authoritative. Forecast staleness is surfaced in the header rather than hidden.
 **Revisit if.** Sector-level answers become necessary (the bundle grows), or the corpus needs
 to be queried in ways that cannot fit in a few megabytes.
 
+**Follow-up (2026-11-10).** With the server gone, `pyproject.toml` no longer declares a
+`server` extra (FastAPI, uvicorn, apscheduler, httpx, pydantic) or a `science` extra (numpy,
+pandas, pyarrow, scipy, scikit-learn). Nothing in `src/` imported either, and their presence
+advertised components that do not exist — the exact drift this ADR exists to prevent. The
+package is now `dependencies = []`, and `make install` names only the `dev` extra that is
+really declared.
+
 ---
 
 ## ADR-0010 — Model the ATC service stack, not a single coverage number
