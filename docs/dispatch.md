@@ -213,4 +213,22 @@ coverage, then:
 | `coverage@5` | share of queries where the oracle is in the top 5 | ≥ 0.90 |
 | `calibration` | predicted vs. realised utility across deciles | within 0.05 |
 
+### 8.1 Block time against real filed times
+
+The duration filter is only as good as the block-time model beneath it, so it was checked
+against ground truth rather than intuition: 28 flights in the captured snapshot declare both
+an aircraft type and an en-route time in `HHMM`.
+
+| measure | value |
+| --- | --- |
+| median ratio (modelled / filed) | **1.000** — no systematic bias |
+| median absolute error | 39 min, on sectors of 8 to 18 hours (≈5%) |
+| within 10% of the filed time | 20 of 28 |
+| largest errors | ultra-long-haul eastbound (winds the model ignores) |
+
+That is the intended behaviour: filed times include wind, the model does not, so the errors
+are symmetric and grow with sector length rather than pulling one way. `tests/test_blocktime_real.py`
+holds the median ratio to ±10% and requires half the sectors to land within 10%.
+
+
 A dispatcher that is merely *plausible* will pass none of these. That is the point of having them.
