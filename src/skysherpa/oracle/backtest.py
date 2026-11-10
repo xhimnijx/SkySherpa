@@ -68,16 +68,22 @@ class BacktestReport:
             "cells_checked": self.cells_checked,
         }
 
-    def gates(self) -> list[tuple[str, bool, str]]:
+    def gates(self) -> list[tuple[str, bool | None, str]]:
+        """Pass, fail, or None for "could not be evaluated".
+
+        The interval check needs at least three held-out observations per cell. With few
+        folds nothing qualifies, and reporting that as coverage 0.000 and a failed gate is a
+        false negative: the check did not run, it did not fail.
+        """
+        interval: bool | None = None if self.cells_checked == 0 else self.interval_coverage >= 0.85
+        interval_value = (
+            "n/a, 0 cells" if self.cells_checked == 0 else f"{self.interval_coverage:.3f}"
+        )
         return [
             ("brier skill >= 0.25", self.brier_skill >= 0.25, f"{self.brier_skill:.3f}"),
             ("calibration error <= 0.05", self.ece <= 0.05, f"{self.ece:.3f}"),
             ("auc >= 0.80", self.auc >= 0.80, f"{self.auc:.3f}"),
-            (
-                "interval coverage >= 0.85",
-                self.interval_coverage >= 0.85,
-                f"{self.interval_coverage:.3f}",
-            ),
+            ("interval coverage >= 0.85", interval, interval_value),
         ]
 
 
@@ -320,6 +326,11 @@ def rolling_origin(
             covered += 1
     report.cells_checked = checked
     report.interval_coverage = covered / checked if checked else 0.0
+    if not checked:
+        report.notes.append(
+            "interval coverage not evaluated: no cell had three or more held-out observations "
+            "(try more folds)"
+        )
 
     # Walk-forward calibration: fit the isotonic map on one fold, apply it to the next.
     # Fitting and evaluating on the same data would flatter the map into meaninglessness.

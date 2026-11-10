@@ -814,6 +814,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     print("")
     failures = 0
     for name, passed, value in report.gates():
+        if passed is None:
+            # A gate that could not be evaluated is not a gate that failed.
+            print(f"  SKIP  {name}: {value}")
+            continue
         print(f"  {'PASS' if passed else 'FAIL'}  {name}: {value}")
         failures += 0 if passed else 1
     if args.bins:
