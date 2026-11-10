@@ -998,6 +998,26 @@ def cmd_status(args: argparse.Namespace) -> int:
           f"{stats['flights']:,} flights")
     print(f"matrix     {observations:,} presence slots over {days} day(s)")
     print(f"collector  {collector}")
+
+    # The publisher writes a heartbeat per cycle; without this line its death is invisible,
+    # because everything downstream of it keeps looking plausible.
+    publisher = "no heartbeat yet (publish --watch writes one per cycle)"
+    beats: list[tuple[datetime, str]] = []
+    for site in ("dist", "dist-real"):
+        try:
+            payload = json.loads(
+                (settings.root / site / ".publisher.json").read_text(encoding="utf-8")
+            )
+            beats.append((datetime.fromisoformat(payload["at"]), site))
+        except (OSError, ValueError, KeyError):
+            continue
+    if beats:
+        moment, site = max(beats)
+        age = (datetime.now(UTC) - moment).total_seconds()
+        where = f"{age:.0f}s ago" if age < 90 else f"{age / 60:.0f} min ago"
+        verdict = "alive" if age < 3600 else "STALLED"
+        publisher = f"{site}: last cycle {where} ({verdict})"
+    print(f"publisher  {publisher}")
     print("")
     print("readiness")
     for name, ready, detail, wait in checks:
