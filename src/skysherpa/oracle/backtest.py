@@ -24,6 +24,12 @@ from .model import Calibrator, CoverageModel, ModelParams, PresenceMatrix
 __all__ = ["BacktestReport", "rolling_origin"]
 
 
+#: A held-out prediction counts as "backed" when the training data behind its cell is worth
+#: more than the prior. Below this the model is mostly repeating the group average, and a
+#: good Brier score there says more about the prior than about the forecast.
+BACKED_MIN = 3.0
+
+
 @dataclass(slots=True)
 class BacktestReport:
     folds: int = 0
@@ -32,6 +38,9 @@ class BacktestReport:
     brier: float = 0.0
     brier_baseline: float = 0.0
     brier_skill: float = 0.0
+    backed_predictions: int = 0
+    backed_share: float = 0.0
+    brier_skill_backed: float = 0.0
     auc: float = 0.0
     ece: float = 0.0
     calibrated_ece: float = 0.0
@@ -49,6 +58,9 @@ class BacktestReport:
             "brier": round(self.brier, 4),
             "brier_baseline": round(self.brier_baseline, 4),
             "brier_skill": round(self.brier_skill, 4),
+            "backed_predictions": self.backed_predictions,
+            "backed_share": round(self.backed_share, 4),
+            "brier_skill_backed": round(self.brier_skill_backed, 4),
             "auc": round(self.auc, 4),
             "ece": round(self.ece, 4),
             "reliability_max_dev": round(self.reliability_max_dev, 4),
@@ -223,6 +235,8 @@ def rolling_origin(
     last_day = all_days[-1]
     samples: list[tuple[float, int]] = []
     baseline: list[tuple[float, int]] = []
+    backed_samples: list[tuple[float, int]] = []
+    backed_baseline: list[tuple[float, int]] = []
     fold_samples: list[list[tuple[float, int]]] = []
     cell_params: dict[tuple[str, int, int], list[tuple[float, float]]] = defaultdict(list)
     cell_outcomes: dict[tuple[str, int, int], list[int]] = defaultdict(list)
@@ -257,6 +271,9 @@ def rolling_origin(
                 current.append((forecast.p, online))
                 hits, total = base_rates.get(position, (1, 2))
                 baseline.append(((hits + 1) / (total + 2), online))
+                if forecast.n_eff >= BACKED_MIN:
+                    backed_samples.append((forecast.p, online))
+                    backed_baseline.append(((hits + 1) / (total + 2), online))
                 key = (position, day.weekday(), slot)
                 cell_params[key].append(model.beta_params(position, day.weekday(), slot))
                 cell_outcomes[key].append(online)
@@ -276,6 +293,18 @@ def rolling_origin(
     )
     report.auc = _auc(samples)
     report.ece, report.reliability_max_dev, report.bins = _reliability(samples)
+
+    # How much of that score rests on cells the model had actually seen, rather than on the
+    # prior it emits for thin ones. A run whose skill is carried by prior-only cells is not
+    # evidence of anything.
+    report.backed_predictions = len(backed_samples)
+    report.backed_share = len(backed_samples) / len(samples)
+    if backed_samples:
+        brier_backed = sum((p - y) ** 2 for p, y in backed_samples) / len(backed_samples)
+        baseline_backed = sum((p - y) ** 2 for p, y in backed_baseline) / len(backed_baseline)
+        report.brier_skill_backed = (
+            1.0 - brier_backed / baseline_backed if baseline_backed > 0 else 0.0
+        )
 
     covered = 0
     checked = 0
@@ -312,4 +341,9 @@ def rolling_origin(
 
     if report.brier_skill < 0.25:
         report.notes.append("below the 0.25 skill gate")
+    if report.backed_share < 0.5:
+        report.notes.append(
+            f"only {report.backed_share:.0%} of held-out cells had >= {BACKED_MIN:g} "
+            f"observations; skill on those is {report.brier_skill_backed:.3f}"
+        )
     return report

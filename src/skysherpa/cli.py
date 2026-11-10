@@ -800,6 +800,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     print("")
     print(f"  {'brier':<22}{report.brier:.4f}   baseline {report.brier_baseline:.4f}")
     print(f"  {'brier skill':<22}{report.brier_skill:.4f}")
+    print(
+        f"  {'backed cells':<22}{report.backed_share:.0%} of predictions"
+        f"   skill there {report.brier_skill_backed:.4f}"
+    )
     print(f"  {'auc':<22}{report.auc:.4f}")
     print(f"  {'calibration error':<22}{report.ece:.4f}")
     print(f"  {'worst bin (1%+)':<22}{report.reliability_max_dev:.4f}")

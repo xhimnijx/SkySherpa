@@ -182,6 +182,25 @@ def test_backtest_runs_and_reports() -> None:
     assert 0.0 <= report.auc <= 1.0
     assert report.brier_skill > 0.0
     assert len(report.gates()) == 4
+    # A 60-day, one-position matrix is densely observed, so most held-out predictions rest
+    # on real training data rather than on the prior.
+    assert 0.0 < report.backed_share <= 1.0
+    assert report.backed_predictions <= report.predictions
+    assert report.backed_share > 0.5
+
+
+def test_backtest_flags_prior_driven_predictions() -> None:
+    """With almost no history every cell is prior-only, and the report must say so."""
+    start = date(2026, 9, 1)
+    rng = random.Random(9)
+    rows = [
+        (start + timedelta(days=offset), 40, 1 if rng.random() < 0.5 else 0) for offset in range(36)
+    ]
+    report = rolling_origin(PresenceMatrix(days={"EGLL_TWR": rows}), folds=4, horizon_days=7)
+    # One slot per day means every (weekday, slot) cell sees at most a handful of rows.
+    assert report.predictions > 0
+    assert report.backed_share < 0.5
+    assert any("held-out cells" in note for note in report.notes)
 
 
 def test_model_params_are_honoured() -> None:
