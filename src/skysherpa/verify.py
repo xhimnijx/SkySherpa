@@ -48,8 +48,13 @@ def _count(meta: dict[str, Any], name: str, problems: list[str]) -> int | None:
     return value
 
 
-def verify_bundle(out_dir: Path) -> list[str]:
-    """Return a list of problems; an empty list means the bundle is coherent."""
+def verify_bundle(out_dir: Path, *, check_assets: bool = True) -> list[str]:
+    """Return a list of problems; an empty list means the bundle is coherent.
+
+    ``check_assets=False`` is for a publish done with ``--no-assets``: the data is complete,
+    the web files are somebody else's job, and failing the build over them would make the
+    flag useless.
+    """
     problems: list[str] = []
     if not out_dir.is_dir():
         return [f"{out_dir} does not exist"]
@@ -57,9 +62,10 @@ def verify_bundle(out_dir: Path) -> list[str]:
     if not data.is_dir():
         return [f"{data} does not exist"]
 
-    for asset in ASSETS:
-        if not (out_dir / asset).is_file():
-            problems.append(f"missing web asset {asset}")
+    if check_assets:
+        for asset in ASSETS:
+            if not (out_dir / asset).is_file():
+                problems.append(f"missing web asset {asset}")
 
     meta = _load(data / "meta.json", problems)
     if not isinstance(meta, dict):

@@ -61,6 +61,15 @@ def make_bundle(
     return out
 
 
+def test_assets_can_be_skipped_for_a_data_only_publish(tmp_path: Path) -> None:
+    """`publish --no-assets` is legitimate; verification must not fail the build over it."""
+    out = make_bundle(tmp_path)
+    for asset in ("index.html", "app.js", "core.js", "style.css"):
+        (out / asset).unlink()
+    assert verify_bundle(out) != []
+    assert verify_bundle(out, check_assets=False) == []
+
+
 def test_a_coherent_bundle_has_no_problems(tmp_path: Path) -> None:
     assert verify_bundle(make_bundle(tmp_path)) == []
 

@@ -876,7 +876,7 @@ def _publish_once(args: argparse.Namespace, settings: Settings) -> int:
     # and fail somewhere unhelpful. Check it here while the operator is still watching.
     from .verify import verify_bundle
 
-    problems = verify_bundle(out)
+    problems = verify_bundle(out, check_assets=not args.no_assets)
     if problems:
         print("", file=sys.stderr)
         print(f"bundle is incoherent ({len(problems)} problem(s)):", file=sys.stderr)

@@ -15,6 +15,33 @@ from skysherpa.rollup import rebuild_all
 from skysherpa.simulate import simulate_flights, simulate_network
 from skysherpa.staticdata import Airport, Boundary, Fir, StaticReference
 from skysherpa.store import Database
+from skysherpa.verify import verify_bundle
+
+
+def test_publish_works_on_a_single_day_of_history(tmp_path: Path) -> None:
+    """The first publish on the laptop happens seconds after install, on almost no data.
+
+    One day is the thinnest case that still produces a usable bundle: the model has a single
+    observation per weekday/hour cell, every evidence count is 1, and the site is supposed to
+    say "early days" rather than fail.
+    """
+    database = Database(tmp_path / "thin.sqlite3")
+    database.initialize()
+    end = datetime(2026, 11, 9, 22, tzinfo=UTC)
+    simulate_network(database, days=1, seed=11, end=end)
+    simulate_flights(database, days=1, seed=12, end=end)
+    rebuild_all(database)
+
+    out = tmp_path / "dist"
+    result = build_bundle(database, out_dir=out, reference=_reference())
+    assert result.total_bytes > 0
+    assert verify_bundle(out) == []
+
+    meta = json.loads((out / "data" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["days_observed"] == 1
+    assert meta["positions_modelled"] >= 1
+    assert meta["pair_count"] >= 0
+    database.close()
 
 
 def _reference() -> StaticReference:
