@@ -10,6 +10,7 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 python=${PYTHON:-python3}
 dry_run=0
+uninstall=0
 # $USER is not set in every environment that runs this (cron, bare sh); id always works.
 login_user=$(id -un)
 
@@ -18,11 +19,13 @@ say() { printf '%s\n' "$*"; }
 for arg in "$@"; do
   case "$arg" in
     --dry-run) dry_run=1 ;;
+    --uninstall) uninstall=1 ;;
     -h | --help)
-      say "usage: $0 [--dry-run]"
+      say "usage: $0 [--dry-run | --uninstall]"
       say ""
-      say "Installs SkySherpa as systemd user units. --dry-run checks the environment and"
-      say "prints what it would do, without creating a venv or touching systemd."
+      say "Installs SkySherpa as systemd user units."
+      say "  --dry-run    check the environment and print the plan, change nothing"
+      say "  --uninstall  stop and remove the units; data, bundles and the venv stay"
       exit 0
       ;;
     *)
@@ -40,6 +43,24 @@ case "$repo" in
     exit 1
     ;;
 esac
+
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+# Uninstall comes first and tolerates a dead manager: removing files must not require a
+# working systemd session, and stopping units that are already gone is not an error.
+if [ "$uninstall" = 1 ]; then
+  # Removing units must never remove data: the collected history is the expensive part.
+  systemctl --user disable --now \
+    skysherpa-check.timer \
+    skysherpa-web.service \
+    skysherpa-publish.service \
+    skysherpa-ingest.service 2>/dev/null || true
+  rm -f "$unit_dir"/skysherpa-*.service "$unit_dir"/skysherpa-*.timer
+  systemctl --user daemon-reload 2>/dev/null || true
+  say "units removed and services stopped"
+  say "left in place: $repo/data (history), $repo/dist-real (bundle), $repo/.venv"
+  exit 0
+fi
 
 # Without a user session bus, systemctl --user fails with a message about D-Bus that does
 # not mention the real cause: running from a bare SSH login or a cron job.
@@ -69,8 +90,6 @@ if ! "$python" -c 'import venv, ensurepip' >/dev/null 2>&1; then
   say "       install it first:  sudo apt install python3-venv"
   exit 1
 fi
-
-unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 if [ "$dry_run" = 1 ]; then
   say ""

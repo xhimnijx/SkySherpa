@@ -136,6 +136,16 @@ systemctl --user restart skysherpa-ingest skysherpa-publish
 To run them as system services instead, copy `ops/systemd/*` to `/etc/systemd/system`, add
 `User=`, and drop `--user` from the commands.
 
+The site binds to loopback, so browsing it from another machine needs a tunnel:
+
+```bash
+ssh -L 8099:127.0.0.1:8099 you@the-laptop
+```
+
+Then open `http://127.0.0.1:8099/` on the machine you are sitting at. `ops/install-ubuntu.sh
+--uninstall` stops and removes the units; it never touches the collected history, the
+published bundle or the virtualenv.
+
 CI runs on `ubuntu-latest` for Python 3.11, 3.12 and 3.13: the offline suite, both shell
 scripts, the installer's dry run, and a full `simulate → publish → verify → backtest` cycle.
 The live-network job is manual, because the feed throttles.

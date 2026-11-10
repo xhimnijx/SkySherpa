@@ -233,6 +233,38 @@ def test_installer_rejects_unknown_arguments() -> None:
     assert "unknown argument" in completed.stdout
 
 
+def test_installer_uninstall_removes_only_its_own_units(tmp_path: Path) -> None:
+    """Uninstalling must not delete the collected history, and must not touch other units."""
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash available")
+
+    unit_dir = tmp_path / "systemd" / "user"
+    unit_dir.mkdir(parents=True)
+    ours = ["skysherpa-ingest.service", "skysherpa-publish.service", "skysherpa-check.timer"]
+    for name in ours:
+        (unit_dir / name).write_text("x", encoding="utf-8")
+    (unit_dir / "something-else.service").write_text("x", encoding="utf-8")
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "skysherpa.sqlite3").write_text("pretend history", encoding="utf-8")
+
+    env = {**os.environ, "XDG_CONFIG_HOME": str(tmp_path), "HOME": str(tmp_path)}
+    completed = subprocess.run(
+        [bash, str(ROOT / "ops" / "install-ubuntu.sh"), "--uninstall"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(ROOT),
+    )
+    assert completed.returncode == 0, completed.stderr
+    for name in ours:
+        assert not (unit_dir / name).exists(), name
+    assert (unit_dir / "something-else.service").exists()
+    assert (data / "skysherpa.sqlite3").read_text(encoding="utf-8") == "pretend history"
+    assert "left in place" in completed.stdout
+
+
 def test_launchers_do_not_assume_a_python_binary() -> None:
     """Ubuntu ships python3 and, on a clean image, no `python` at all."""
     dev = (ROOT / "scripts" / "dev.sh").read_text(encoding="utf-8")
