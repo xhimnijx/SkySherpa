@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import signal
 import sys
 import threading
 import time
@@ -526,8 +527,29 @@ def cmd_fleet(args: argparse.Namespace) -> int:
 # ------------------------------------------------------------------- persistence
 
 
+def _raise_interrupt(signum: int, frame: object) -> None:  # noqa: ARG001
+    raise KeyboardInterrupt
+
+
+def _install_shutdown_handler() -> None:
+    """Treat SIGTERM like Ctrl-C.
+
+    systemd stops a unit with SIGTERM, and Python's default is to exit immediately -- which
+    skips the flush that closes open controller sessions, finishes in-flight flight records
+    and writes the publisher heartbeat. Raising KeyboardInterrupt reuses the cleanup paths
+    that already exist for an interactive Ctrl-C instead of duplicating them.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        signal.signal(signal.SIGTERM, _raise_interrupt)
+    except (ValueError, OSError, AttributeError):  # pragma: no cover - platform dependent
+        pass
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     settings = _settings(args)
+    _install_shutdown_handler()
     return run_ingest(
         settings,
         once=args.once,
@@ -887,6 +909,7 @@ def cmd_publish(args: argparse.Namespace) -> int:
     settings = _settings(args)
     if not args.watch:
         return _publish_once(args, settings)
+    _install_shutdown_handler()
 
     interval = max(60, args.interval)
     # A cycle that hangs produces no output, no error, and a website that quietly goes

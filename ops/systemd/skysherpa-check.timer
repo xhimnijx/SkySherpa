@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the SkySherpa health check every ten minutes
+Documentation=https://github.com/maximgil/skysherpa
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

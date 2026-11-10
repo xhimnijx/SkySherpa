@@ -1,0 +1,16 @@
+[Unit]
+Description=SkySherpa site (static bundle on localhost:8099)
+Documentation=https://github.com/maximgil/skysherpa
+After=skysherpa-publish.service
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+# Bound to loopback on purpose. This is a static file server for one person; exposing it
+# to the network is a separate decision with a real web server, not python -m http.server.
+ExecStart=@REPO@/.venv/bin/python -m http.server 8099 --bind 127.0.0.1 --directory @REPO@/dist-real
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

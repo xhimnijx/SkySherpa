@@ -1,0 +1,23 @@
+[Unit]
+Description=SkySherpa collector (polls the VATSIM feed)
+Documentation=https://github.com/maximgil/skysherpa
+# The feed is HTTP; a network-online ordering is enough. Do not add Requires=network-online
+# here: on a laptop that boots without a network it makes the unit fail rather than retry.
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+# Unbuffered output: when stdout is a pipe (journald), Python block-buffers and the log
+# appears in bursts minutes late.
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@REPO@/.venv/bin/python -m skysherpa ingest --interval 15
+Restart=always
+RestartSec=10
+# systemd stops with SIGTERM; the CLI turns that into the same clean shutdown as Ctrl-C,
+# which flushes open controller sessions and in-flight flight records.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target

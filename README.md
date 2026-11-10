@@ -93,47 +93,71 @@ leaving in ten minutes the second one wins.
 
 See [ADR-0009](docs/decisions.md) for why this is a static site and not an API.
 
-## Running it for real
+## Running on Ubuntu (the target)
 
-Three processes, and only the first needs to be always-on:
+Ubuntu 24.04 with Python 3.12 is the intended host. 3.11 is the floor — 22.04 ships 3.10,
+so use 24.04 or install `python3.11` and point `PYTHON=` at it.
 
-```powershell
-# 1. collect the network (forever, unless you pass --minutes)
-.\scripts\dev.ps1 ingest
-
-# 2. republish the forecast every 15 minutes; rolls up first, then calibrates, then exports
-.\scripts\dev.ps1 publish --watch
-
-# 3. serve the static bundle
-python -m http.server 8099 --directory dist
-
-# any time: is the history deep enough to trust the forecast yet?
-.\scripts\dev.ps1 status
-
-# and, from a scheduler: exits non-zero if the collector or publisher stops
-.\scripts\dev.ps1 status --check
-
-# check that a published bundle is internally coherent (publish does this too)
-.\scripts\dev.ps1 verify
-
-# monthly, or whenever: keep the database laptop-sized
-.\scripts\dev.ps1 prune --keep-days 45
+```bash
+git clone <repo> ~/skysherpa
+cd ~/skysherpa
+./ops/install-ubuntu.sh
 ```
+
+That creates a virtualenv, installs the package, writes four systemd **user** units and
+enables them:
+
+| unit | what it does |
+| --- | --- |
+| `skysherpa-ingest` | polls the feed every 15 s; restarts on failure |
+| `skysherpa-publish` | rebuilds and republishes every 10 min (`--timeout 300`) |
+| `skysherpa-web` | serves `dist-real` on 127.0.0.1:8099 |
+| `skysherpa-check.timer` | runs `status --check` every 10 min; a stall fails the unit |
+
+User units need no root, and `loginctl enable-linger` keeps them running after logout. Day
+to day:
+
+```bash
+systemctl --user status skysherpa-ingest skysherpa-publish
+journalctl --user -u skysherpa-publish -f
+systemctl --user list-timers skysherpa-check.timer
+~/skysherpa/.venv/bin/python -m skysherpa status --check
+```
+
+After a `git pull`, restart the two long-running units — they hold their Python modules in
+memory for the life of the process, so a change to the exporter or the model does not take
+effect until then:
+
+```bash
+systemctl --user restart skysherpa-ingest skysherpa-publish
+```
+
+To run them as system services instead, copy `ops/systemd/*` to `/etc/systemd/system`, add
+`User=`, and drop `--user` from the commands.
+
+## Running it by hand
+
+Any platform, for a quick look:
+
+```bash
+make demo-site                 # simulate 56 days, publish, serve on :8099
+scripts/dev.sh status          # history, readiness, collector and publisher health
+scripts/dev.sh status --check  # same, but exits non-zero if anything is stale
+scripts/dev.sh verify          # the published bundle is internally coherent
+scripts/dev.sh prune --keep-days 45   # monthly: keep the database laptop-sized
+```
+
+On Windows the same subcommands are `.\scripts\dev.ps1 <command>`.
 
 Pruning drops raw flights older than the window and reclaims the space. It cannot hurt the
 forecast: the model reads controller sessions and the materialised presence matrix, and
 neither is touched. It shortens the *route popularity* window, which is a question about
 recent behaviour anyway.
 
-`publish` now rebuilds the aggregates itself, so there is no separate `rollup` step to
-forget. Each cycle takes about two seconds and rewrites the bundle atomically enough that
-a browser refresh picks up the new forecast. If the publisher stops, the site keeps
-working and says how old the forecast is — the correct failure mode.
-
-After upgrading the code, restart `ingest` and `publish --watch`. Both hold their Python
-modules in memory for the life of the process, so a change to the exporter, the model or
-the simulator does not take effect until they are restarted — the first publish after a
-change may still be running the previous build.
+`publish` rebuilds the aggregates itself, so there is no separate `rollup` step to forget.
+A cycle takes about a second and rewrites the bundle atomically, so a browser refresh picks
+up the new forecast. If the publisher stops, the site keeps working and says how old the
+forecast is — the correct failure mode.
 
 ### Capacity
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=SkySherpa health check (collector and publisher freshness)
+Documentation=https://github.com/maximgil/skysherpa
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+Environment=PYTHONUNBUFFERED=1
+# Exits non-zero when the collector has not polled in five minutes or the publisher has
+# missed its own cadence, so a stall shows up as a failed unit instead of a stale website
+# nobody noticed.
+ExecStart=@REPO@/.venv/bin/python -m skysherpa status --check

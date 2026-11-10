@@ -1,0 +1,21 @@
+[Unit]
+Description=SkySherpa publisher (forecast bundle every ten minutes)
+Documentation=https://github.com/maximgil/skysherpa
+After=skysherpa-ingest.service
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@
+Environment=PYTHONUNBUFFERED=1
+# --timeout abandons a hung cycle instead of stalling forever; the heartbeat written to
+# dist-real/.publisher.json is what `skysherpa status` reads.
+ExecStart=@REPO@/.venv/bin/python -m skysherpa publish --watch --out @REPO@/dist-real --interval 600 --timeout 300
+Restart=always
+# Longer than the ingest retry: the publisher needs the database to exist, which happens
+# after the collector's first successful poll.
+RestartSec=30
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target
