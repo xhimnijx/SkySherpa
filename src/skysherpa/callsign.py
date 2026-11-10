@@ -172,9 +172,20 @@ def parse(
     if len(parts) >= 2 and _SECTOR_RE.match(parts[-1]) and not parts[-1].isdigit():
         sector = parts[-1]
         base = "_".join(parts[:-1])
+    elif len(parts) >= 2 and parts[-1].isdigit():
+        # A trailing number is a position index, not part of the airport: OTHH_1_GND is a
+        # second ground position *at* OTHH. Left in, it defeats the four-letter test and the
+        # airport is lost, so that controller's coverage never reaches the airport.
+        base = "_".join(parts[:-1])
 
     if not _ICAO_RE.match(base):
-        airport = None
+        # US towers file three-letter stems (OKC_GND) and the airport is KOKC. Only resolve
+        # when the prefixed code is actually known: guessing would invent airports.
+        airport = (
+            f"K{base}"
+            if len(base) == 3 and known_airports is not None and f"K{base}" in known_airports
+            else None
+        )
     elif known_airports is None:
         airport = base  # candidate: may turn out to be a FIR
     else:

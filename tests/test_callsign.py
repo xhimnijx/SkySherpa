@@ -108,3 +108,35 @@ def test_is_observer_like_hot_path() -> None:
     assert is_observer_like("AAL2055A")
     assert is_observer_like("1808096_OBS", 0)
     assert not is_observer_like("EGLL_TWR", 4)
+
+
+# ------------------------------------------------------- airports from real stems
+
+
+def test_a_position_index_does_not_hide_the_airport() -> None:
+    """OTHH_1_GND is a second ground position *at* OTHH and must attribute to it.
+
+    Observed on the live network. The trailing index defeated the four-letter test, so the
+    airport was lost and that controller's coverage never reached the airport stack.
+    """
+    position = parse("OTHH_1_GND", facility_code=3, known_airports={"OTHH"})
+    assert position.airport == "OTHH"
+    assert position.key == "OTHH_1_GND", "the staffing unit is still the numbered position"
+
+
+def test_us_three_letter_stems_resolve_to_k_prefixed_airports() -> None:
+    """OKC_GND is at KOKC. Observed on the live network."""
+    position = parse("OKC_GND", facility_code=3, known_airports={"KOKC", "EGLL"})
+    assert position.airport == "KOKC"
+    assert position.key == "OKC_GND"
+
+
+def test_a_three_letter_stem_is_not_guessed_when_the_prefixed_airport_is_unknown() -> None:
+    assert parse("OKC_GND", facility_code=3, known_airports={"EGLL"}).airport is None
+    assert parse("OKC_GND", facility_code=3).airport is None
+
+
+def test_a_sector_suffix_still_wins_over_a_position_index() -> None:
+    position = parse("ENBR_W_APP", facility_code=5, known_airports={"ENBR"})
+    assert position.sector == "W"
+    assert position.airport == "ENBR"
